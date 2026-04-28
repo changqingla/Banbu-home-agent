@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+
+@dataclass
+class ProactiveTrigger:
+    scene_id: str
+    home_id: str
+    facts: dict[str, Any]
+    source_event_summaries: list[str] = field(default_factory=list)
+    triggered_at: float = field(default_factory=time.time)
+    trigger_id: str = field(default_factory=lambda: f"trg_{uuid.uuid4().hex[:12]}")
+
+
+ThreadType = Literal["proactive", "reactive"]
+
+
+@dataclass
+class Turn:
+    turn_id: str
+    thread_type: ThreadType
+    conversation_id: str
+    home_id: str
+    user_id: str | None = None
+    source: str = "system"
+    scene_id: str | None = None
+    utterance: str | None = None
+    trigger: ProactiveTrigger | None = None
+
+    @classmethod
+    def from_proactive(cls, trigger: ProactiveTrigger) -> "Turn":
+        return cls(
+            turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+            thread_type="proactive",
+            conversation_id=f"{trigger.home_id}_{trigger.scene_id}",
+            home_id=trigger.home_id,
+            source="scene",
+            scene_id=trigger.scene_id,
+            trigger=trigger,
+        )

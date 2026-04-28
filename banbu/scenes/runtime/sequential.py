@@ -1,0 +1,231 @@
+"""Sequential trigger state machine + precondition evaluation.
+
+Lifecycle (see plan §4.2.1 for the full table):
+
+  [event arrives]
+       │
+       ├── cooldown active?     drop
+       ├── inflight active?     drop
+       ├── window expired?      reset cursor → 0
+       ├── matches steps[cursor]?
+       │       yes → advance cursor
+       │             ├── if cursor == len(steps):
+       │             │       evaluate preconditions
+       │             │            pass → emit ProactiveTrigger,
+       │             │                   set inflight_until,
+       │             │                   reset cursor
+       │             │            fail → reset cursor (no inflight, no cooldown)
+       │       no  → if cursor>0 and event matches steps[0]:
+       │                   restart at step 1 (we just matched step 0 fresh)
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
+from banbu.ingest.event import DeviceEvent, FieldChange
+from banbu.scenes.definition import (
+    Precondition,
+    Scene,
+    TriggerStep,
+    WILDCARD,
+)
+from banbu.state.snapshot_cache import MISSING, SnapshotCache
+from banbu.turn.model import ProactiveTrigger
+
+from .base import OnHit, SceneRuntime
+from .lifecycle import SceneState
+
+log = logging.getLogger(__name__)
+
+
+def _match_value(spec: Any, actual: Any) -> bool:
+    if spec is WILDCARD:
+        return True
+    return spec == actual
+
+
+def _matches_step(step: TriggerStep, event: DeviceEvent, change: FieldChange) -> bool:
+    if event.friendly_name != step.device:
+        return False
+    norm_field = step.field if step.field.startswith("payload.") else f"payload.{step.field}"
+    leaf = norm_field[len("payload."):]
+    if change.field != leaf:
+        return False
+    return _match_value(step.old_value, change.old) and _match_value(step.new_value, change.new)
+
+
+def _eval_op(op: str, lhs: Any, rhs: Any) -> bool:
+    if op == "eq":
+        return lhs == rhs
+    if op == "neq":
+        return lhs != rhs
+    if op == "lt":
+        return lhs < rhs
+    if op == "lte":
+        return lhs <= rhs
+    if op == "gt":
+        return lhs > rhs
+    if op == "gte":
+        return lhs >= rhs
+    if op == "in":
+        return lhs in rhs
+    raise ValueError(f"unknown op: {op}")
+
+
+class PreconditionFailed(RuntimeError):
+    pass
+
+
+def _check_precondition(pre: Precondition, cache: SnapshotCache) -> tuple[bool, str]:
+    value, _ts = cache.field(pre.device, pre.field)
+    if value is MISSING:
+        if pre.on_missing == "skip":
+            return False, f"{pre.device}.{pre.field} missing → skip"
+        if pre.on_missing == "pass":
+            return True, f"{pre.device}.{pre.field} missing → pass"
+        raise PreconditionFailed(f"{pre.device}.{pre.field} missing → fail")
+    try:
+        ok = _eval_op(pre.op, value, pre.value)
+    except TypeError as e:
+        return False, f"{pre.device}.{pre.field}={value!r} {pre.op} {pre.value!r} → type error ({e})"
+    return ok, f"{pre.device}.{pre.field}={value!r} {pre.op} {pre.value!r} → {ok}"
+
+
+class SequentialSceneRuntime(SceneRuntime):
+    def __init__(
+        self,
+        scene: Scene,
+        cache: SnapshotCache,
+        *,
+        home_id: str,
+        on_hit: OnHit | None = None,
+    ) -> None:
+        super().__init__(scene, on_hit=on_hit)
+        if scene.kind != "sequential":
+            raise ValueError(f"SequentialSceneRuntime got kind={scene.kind!r}")
+        self._cache = cache
+        self._home_id = home_id
+        self.state = SceneState()
+        self._recent_events: list[str] = []
+
+    def on_event(self, event: DeviceEvent, change: FieldChange) -> None:
+        scene = self.scene
+        steps = scene.trigger.steps
+        st = self.state
+        now = time.time()
+
+        if st.is_in_cooldown(now):
+            log.info(
+                "scene %s: cooldown active (%.1fs left), dropping %s.%s",
+                scene.scene_id, st.cooldown_until - now,
+                event.friendly_name, change.field,
+            )
+            return
+        if st.is_inflight(now):
+            log.info(
+                "scene %s: inflight active (%.1fs left), dropping %s.%s",
+                scene.scene_id, st.inflight_until - now,
+                event.friendly_name, change.field,
+            )
+            return
+
+        if st.cursor > 0 and st.last_step_at is not None:
+            window = steps[st.cursor].within_seconds
+            if window is not None and (now - st.last_step_at) > window:
+                log.info(
+                    "scene %s: window expired (%.1fs > %.1fs), resetting cursor",
+                    scene.scene_id, now - st.last_step_at, window,
+                )
+                st.reset_cursor()
+
+        target = steps[st.cursor]
+        if _matches_step(target, event, change):
+            self._note_event(event, change)
+            st.last_step_at = now
+            st.cursor += 1
+            log.info(
+                "scene %s: step %d/%d matched on %s.%s (%r->%r)",
+                scene.scene_id, st.cursor, len(steps),
+                event.friendly_name, change.field, change.old, change.new,
+            )
+            if st.cursor >= len(steps):
+                self._evaluate_and_emit()
+            return
+
+        if st.cursor > 0 and _matches_step(steps[0], event, change):
+            log.info(
+                "scene %s: restart from step 0 on %s.%s",
+                scene.scene_id, event.friendly_name, change.field,
+            )
+            self._recent_events.clear()
+            self._note_event(event, change)
+            st.cursor = 1
+            st.last_step_at = now
+
+    def _note_event(self, event: DeviceEvent, change: FieldChange) -> None:
+        self._recent_events.append(
+            f"{event.friendly_name}.{change.field}: {change.old!r}->{change.new!r}"
+        )
+        if len(self._recent_events) > 10:
+            self._recent_events = self._recent_events[-10:]
+
+    def _evaluate_and_emit(self) -> None:
+        scene = self.scene
+        st = self.state
+
+        try:
+            results: list[str] = []
+            all_pass = True
+            for pre in scene.preconditions:
+                ok, summary = _check_precondition(pre, self._cache)
+                results.append(summary)
+                if not ok:
+                    all_pass = False
+        except PreconditionFailed as e:
+            log.warning("scene %s: precondition failed (%s) — abort", scene.scene_id, e)
+            st.reset_cursor()
+            self._recent_events.clear()
+            return
+
+        if not all_pass:
+            log.info(
+                "scene %s: preconditions rejected — no HIT. results: %s",
+                scene.scene_id, "; ".join(results),
+            )
+            st.reset_cursor()
+            self._recent_events.clear()
+            return
+
+        facts = self._collect_facts()
+        trigger = ProactiveTrigger(
+            scene_id=scene.scene_id,
+            home_id=self._home_id,
+            facts=facts,
+            source_event_summaries=list(self._recent_events),
+        )
+        st.set_inflight(scene.policy.inflight_seconds)
+        log.info(
+            "Scene HIT %s trigger_id=%s inflight_until=%.0f facts=%s",
+            scene.scene_id, trigger.trigger_id, st.inflight_until, facts,
+        )
+        st.reset_cursor()
+        self._recent_events.clear()
+
+        if self._on_hit is not None:
+            try:
+                self._on_hit(trigger)
+            except Exception:
+                log.exception("on_hit handler raised (continuing)")
+
+    def _collect_facts(self) -> dict[str, Any]:
+        facts: dict[str, Any] = {}
+        for name in self.scene.trigger_devices():
+            snap = self._cache.get_by_name(name)
+            if snap is not None:
+                facts[name] = dict(snap.payload)
+        for pre in self.scene.preconditions:
+            value, _ = self._cache.field(pre.device, pre.field)
+            facts.setdefault(pre.device, {})[pre.field] = None if value is MISSING else value
+        return facts

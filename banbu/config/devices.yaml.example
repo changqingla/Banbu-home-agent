@@ -1,0 +1,31 @@
+# Banbu 管理的设备子集。复制为 devices.yaml 后按你的真实环境修改。
+# friendly_name 必须与 IoT 平台 /api/v1/devices 返回的 friendly_name 完全一致。
+# 若设备尚未重命名，friendly_name 默认就是 ieee_address（如 0xa4c138c1dfcc3e7e）。
+
+devices:
+  - friendly_name: door_sensor_1
+    room: 玄关
+    role: door_sensor
+    aliases: [入户门磁, 大门门磁]
+    care_fields: [contact]
+
+  - friendly_name: entry_pir_1
+    room: 玄关
+    role: motion_sensor
+    aliases: [玄关人体, 玄关红外]
+    care_fields: [occupancy]
+
+  - friendly_name: presence_radar_1
+    room: 玄关
+    role: presence_radar
+    aliases: [玄关毫米波]
+    care_fields: [presence, illuminance]
+
+  - friendly_name: switch_entry_light
+    room: 玄关
+    role: light_switch
+    aliases: [玄关灯, 入户灯]
+    care_fields: [state]
+    actions:
+      turn_on: { state: "ON" }
+      turn_off: { state: "OFF" }

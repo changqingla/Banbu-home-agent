@@ -1,0 +1,32 @@
+scene_id: entry_auto_light_v1
+name: Entry auto light
+kind: sequential
+
+trigger:
+  steps:
+    - device: "0xa4c138c1dfcc3e7e"        # door sensor (TS0203)
+      field: payload.contact
+      transition: "true->false"           # closed → open
+    - device: "0xa4c1384addf12b0c"        # PIR (IH012-RT02)
+      field: payload.occupancy
+      transition: "false->true"
+      within_seconds: 30
+
+context_devices:
+  trigger:
+    - "0xa4c138c1dfcc3e7e"
+    - "0xa4c1384addf12b0c"
+  context_only: []
+
+intent: Turn on light when entry detected
+
+actions_hint:
+  - tool: execute_plan
+    args:
+      device: "0xa4c1388ce42078b7"
+      action: turn_on
+
+policy:
+  cooldown_seconds: 60
+  inflight_seconds: 30
+  priority: 5
