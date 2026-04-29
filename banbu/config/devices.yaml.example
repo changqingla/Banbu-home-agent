@@ -1,6 +1,9 @@
 # Banbu 管理的设备子集。复制为 devices.yaml 后按你的真实环境修改。
 # friendly_name 必须与 IoT 平台 /api/v1/devices 返回的 friendly_name 完全一致。
 # 若设备尚未重命名，friendly_name 默认就是 ieee_address（如 0xa4c138c1dfcc3e7e）。
+# room / aliases 会进入 Agent 上下文，也会作为后续被动入口匹配的语义元数据。
+# light_switch / smart_plug / color_temp_light 会按 role 提供默认动作；
+# actions 只在需要覆盖默认动作或扩展设备特有动作时填写。
 
 devices:
   - friendly_name: entry_camera_vision_1
@@ -34,6 +37,3 @@ devices:
     role: light_switch
     aliases: [玄关灯, 入户灯]
     care_fields: [state]
-    actions:
-      turn_on: { state: "ON" }
-      turn_off: { state: "OFF" }

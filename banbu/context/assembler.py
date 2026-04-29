@@ -17,10 +17,13 @@ from .selector import SelectedContext
 
 def _device_block(dev, snap) -> str:
     actions = sorted(effective_actions(dev.spec))
+    aliases = json.dumps(dev.spec.aliases, ensure_ascii=False)
     payload = json.dumps(snap.payload if snap else {}, ensure_ascii=False, sort_keys=True)
     return (
         f"[device:{dev.spec.friendly_name}] local_id={dev.local_id} "
+        f"room={dev.spec.room or '(unset)'} "
         f"role={dev.spec.role} "
+        f"aliases={aliases} "
         f"actions={actions or 'none'} "
         f"snapshot={payload}"
     )
