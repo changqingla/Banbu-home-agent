@@ -144,6 +144,8 @@ def test_edge_trigger_emits_proactive_trigger_on_single_transition() -> None:
     assert hits[0].scene_id == "edge_scene"
     assert hits[0].facts[DOOR] == {"contact": False}
     assert hits[0].source_event_summaries == ["door_sensor_1.contact: True->False"]
+    assert len(hits[0].source_event_ids) == 1
+    assert hits[0].source_event_ids[0].startswith("evt_")
     assert runtime.state.is_inflight()
 
 

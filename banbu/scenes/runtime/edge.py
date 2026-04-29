@@ -98,6 +98,7 @@ class EdgeSceneRuntime(SceneRuntime):
             home_id=self._home_id,
             facts=facts,
             source_event_summaries=[summarize_change(event, change)],
+            source_event_ids=[event.event_id],
         )
         st.set_inflight(scene.policy.inflight_seconds)
         log.info(
