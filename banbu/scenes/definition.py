@@ -118,7 +118,7 @@ class VisionPolicy(BaseModel):
 class Scene(BaseModel):
     scene_id: str
     name: str
-    kind: Literal["sequential", "vision_match"] = "sequential"
+    kind: Literal["sequential", "edge_triggered", "vision_match"] = "sequential"
     trigger: Trigger | VisionTrigger
     vision_policy: VisionPolicy = Field(default_factory=VisionPolicy)
     context_devices: ContextDevices = Field(default_factory=ContextDevices)
@@ -138,6 +138,11 @@ class Scene(BaseModel):
     def _trigger_matches_kind(self) -> "Scene":
         if self.kind == "sequential" and not isinstance(self.trigger, Trigger):
             raise ValueError("sequential scenes require trigger.steps")
+        if self.kind == "edge_triggered":
+            if not isinstance(self.trigger, Trigger):
+                raise ValueError("edge_triggered scenes require trigger.steps")
+            if len(self.trigger.steps) != 1:
+                raise ValueError("edge_triggered scenes require exactly one trigger step")
         if self.kind == "vision_match" and not isinstance(self.trigger, VisionTrigger):
             raise ValueError("vision_match scenes require trigger.device/field/value")
         return self

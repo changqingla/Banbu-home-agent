@@ -554,7 +554,7 @@ LLM 调用的非确定性：v1 默认 `temperature=0`（env 可改），并对 p
 | 架构文档章节 | 落地模块 |
 |---|---|
 | 5.1 Scene | `scenes/definition.py` + `config/scenes/*.yaml`（含 `preconditions` 块表达硬条件） |
-| 5.2 Trigger | `scenes/runtime/sequential.py` |
+| 5.2 Trigger | `scenes/runtime/sequential.py` + `scenes/runtime/edge.py` |
 | 5.3 Context Devices | YAML 字段 + `context/selector.py` |
 | 5.4 Actions Hint | YAML 字段 → 注入 system prompt |
 | 5.5 Runtime State | `scenes/runtime/*` 内存对象（`cursor` / `inflight_until` / `cooldown_until` 三段独立） |
@@ -582,7 +582,7 @@ LLM 调用的非确定性：v1 默认 `temperature=0`（env 可改），并对 p
 | 进程重启 runtime 丢失 | 接受 | v1 单机；v2 上 Redis |
 | 多家庭 / 多用户 | 暂缓 | 字段已预留 home_id/user_id，逻辑只跑单家庭 |
 | 用户画像 / 长期记忆 | 暂缓 | context/selector 留扩展点，不实现 |
-| 复杂触发类型 | 暂缓 | runtime 里抽象 `SceneRuntime` 基类，只实现 sequential |
+| 复杂触发类型 | 部分支持 | 已支持 sequential / edge_triggered；duration / windowed_all 暂缓 |
 | LLM 失控 | 受控 | 只暴露 2 个工具；execute_plan 必经 control plane |
 | 本地模型 tool calling 不稳 | 已设防 | `BANBU_LLM_TOOLCALL_MODE=auto` 自动从结构化降级 ReAct |
 | 本地模型 / 端点变更 | 零代码改动 | 全走 `.env`，重启即可生效 |
