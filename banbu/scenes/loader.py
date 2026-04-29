@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from banbu.devices.resolver import DeviceResolver
 
-from .definition import Scene, Trigger, VisionTrigger
+from .definition import Scene, Trigger, VisionTrigger, WindowedAllTrigger
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,16 @@ def _validate_against_devices(scene: Scene, resolver: DeviceResolver) -> list[st
             if leaf not in dev.capabilities:
                 errors.append(
                     f"trigger step on {step.device}: field {step.field!r} not in capabilities {sorted(dev.capabilities)}"
+                )
+    elif isinstance(scene.trigger, WindowedAllTrigger):
+        for condition in scene.trigger.conditions:
+            dev = resolver.by_name(condition.device)
+            if dev is None:
+                continue
+            leaf = _strip_payload_prefix(condition.field)
+            if leaf not in dev.capabilities:
+                errors.append(
+                    f"windowed condition on {condition.device}: field {condition.field!r} not in capabilities {sorted(dev.capabilities)}"
                 )
     elif isinstance(scene.trigger, VisionTrigger):
         dev = resolver.by_name(scene.trigger.device)
@@ -115,7 +125,12 @@ def load_scenes(scenes_dir: Path, resolver: DeviceResolver) -> list[Scene]:
 
         scenes.append(scene)
         seen_ids.add(scene.scene_id)
-        trigger_count = len(scene.trigger.steps) if isinstance(scene.trigger, Trigger) else 1
+        if isinstance(scene.trigger, Trigger):
+            trigger_count = len(scene.trigger.steps)
+        elif isinstance(scene.trigger, WindowedAllTrigger):
+            trigger_count = len(scene.trigger.conditions)
+        else:
+            trigger_count = 1
         log.info("loaded scene %s from %s (%d trigger steps, %d preconditions)",
                  scene.scene_id, path.name, trigger_count, len(scene.preconditions))
 

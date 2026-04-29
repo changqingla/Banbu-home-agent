@@ -10,7 +10,7 @@ import json
 
 from banbu.agent.prompts import SYSTEM_POLICY
 from banbu.devices.definition import effective_actions
-from banbu.scenes.definition import Trigger, VisionTrigger
+from banbu.scenes.definition import Trigger, VisionTrigger, WindowedAllTrigger
 
 from .selector import SelectedContext
 
@@ -33,6 +33,12 @@ def _scene_block(scene, name_to_local_id: dict) -> str:
             + (f" within={s.within_seconds}s" if s.within_seconds else "")
             for i, s in enumerate(scene.trigger.steps)
         )
+    elif isinstance(scene.trigger, WindowedAllTrigger):
+        conditions = "; ".join(
+            f"condition{i+1}: {c.device}.{c.field} {c.transition}"
+            for i, c in enumerate(scene.trigger.conditions)
+        )
+        steps = f"windowed_all window={scene.trigger.window_seconds}s; {conditions}"
     else:
         assert isinstance(scene.trigger, VisionTrigger)
         steps = (
