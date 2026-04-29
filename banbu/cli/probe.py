@@ -33,6 +33,7 @@ async def _run(configure_emergency: bool) -> int:
     settings = get_settings()
     print(f"IoT base URL: {settings.iot_base_url}")
     print(f"devices file: {settings.devices_file}")
+    print(f"registry strict: {settings.registry_strict}")
     print()
 
     async with IoTClient(settings) as client:
@@ -41,6 +42,7 @@ async def _run(configure_emergency: bool) -> int:
                 client,
                 settings.devices_file,
                 configure_emergency=configure_emergency,
+                strict=settings.registry_strict,
             )
         except RegistryError as e:
             print(f"[FAIL] {e}", file=sys.stderr)
@@ -59,6 +61,11 @@ async def _run(configure_emergency: bool) -> int:
                 f"{dev.spec.friendly_name:<28} {dev.local_id:>8}  {dev.spec.role:<16} {caps_preview}"
             )
         print()
+        if resolver.skipped_missing_devices:
+            print("Skipped missing devices (declared in devices.yaml but absent from IoT listing):")
+            for name in resolver.skipped_missing_devices:
+                print(f"  - {name}")
+            print()
 
         cache = SnapshotCache(resolver)
         await cache.bootstrap(client)

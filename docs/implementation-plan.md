@@ -60,6 +60,7 @@ BANBU_CP_USE_GPU=false
 
 # ─── 运行时 ──────────────────────────────────────────
 BANBU_HOME_ID=home_default
+BANBU_REGISTRY_STRICT=false                 # true 时 devices.yaml 缺失设备会启动失败
 BANBU_FALLBACK_POLL_SECONDS=30                # webhook 兜底轮询周期
 BANBU_LOG_LEVEL=INFO
 BANBU_DB_PATH=./data/banbu.sqlite

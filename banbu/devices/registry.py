@@ -74,6 +74,7 @@ async def build_registry(
     devices_path: Path,
     *,
     configure_emergency: bool = True,
+    strict: bool = False,
 ) -> DeviceResolver:
     spec_file = _load_yaml(devices_path)
     declared = spec_file.devices
@@ -83,10 +84,13 @@ async def build_registry(
 
     missing = [s.friendly_name for s in declared if not s.virtual and s.friendly_name not in by_name]
     if missing:
-        log.warning(
-            "devices.yaml references friendly_names not found on IoT platform (offline?), skipping: %s",
-            missing,
+        message = (
+            "devices.yaml references friendly_names not found on IoT platform: "
+            f"{missing}"
         )
+        if strict:
+            raise RegistryError(message)
+        log.warning("%s; skipping because registry strict mode is disabled", message)
 
     resolved: list[ResolvedDevice] = []
     errors: list[str] = []
@@ -159,9 +163,9 @@ async def build_registry(
             )
         )
 
-        if errors:
-            joined = "\n  - ".join(errors)
-            raise RegistryError(f"devices.yaml validation errors:\n  - {joined}")
+    if errors:
+        joined = "\n  - ".join(errors)
+        raise RegistryError(f"devices.yaml validation errors:\n  - {joined}")
 
     if configure_emergency:
         for d in resolved:
@@ -189,7 +193,7 @@ async def build_registry(
             joined = "\n  - ".join(errors)
             raise RegistryError(f"failed to configure emergency keywords:\n  - {joined}")
 
-    return DeviceResolver(resolved)
+    return DeviceResolver(resolved, skipped_missing_devices=missing)
 
 
 async def load_specs(devices_path: Path) -> list[DeviceSpec]:
