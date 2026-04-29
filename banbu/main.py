@@ -186,6 +186,7 @@ async def lifespan(app: FastAPI):
         client, resolver, cache,
         interval_seconds=settings.fallback_poll_seconds,
         on_event=dispatcher.on_event,
+        on_tick=dispatcher.on_tick,
     )
     poller.start()
     vision_service = VisionService(settings)

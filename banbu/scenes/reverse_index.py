@@ -14,7 +14,7 @@ from typing import Literal
 
 from banbu.devices.resolver import DeviceResolver
 
-from .definition import Scene, Trigger, VisionTrigger, WindowedAllTrigger
+from .definition import DurationTrigger, Scene, Trigger, VisionTrigger, WindowedAllTrigger
 
 Role = Literal["trigger", "context_only"]
 
@@ -52,6 +52,9 @@ def build_reverse_index(scenes: list[Scene], resolver: DeviceResolver) -> Revers
         elif isinstance(scene.trigger, WindowedAllTrigger):
             for condition in scene.trigger.conditions:
                 idx.add(condition.device, _normalize(condition.field), scene.scene_id, "trigger")
+        elif isinstance(scene.trigger, DurationTrigger):
+            condition = scene.trigger.condition
+            idx.add(condition.device, _normalize(condition.field), scene.scene_id, "trigger")
         elif isinstance(scene.trigger, VisionTrigger):
             for field in (
                 scene.trigger.field,
