@@ -35,6 +35,7 @@ from banbu.devices.resolver import DeviceResolver
 from banbu.dispatcher import Dispatcher
 from banbu.ingest.poller import FallbackPoller
 from banbu.ingest.webhook import make_router
+from banbu.policy import load_policy
 from banbu.scenes.definition import Scene
 from banbu.scenes.loader import load_scenes
 from banbu.scenes.reverse_index import build_reverse_index
@@ -88,6 +89,8 @@ def _make_handle_trigger(
                 local_id, action, params,
                 trigger_id=trigger.trigger_id,
                 scene_id=trigger.scene_id,
+                actor="proactive",
+                home_id=trigger.home_id,
             )
             return {
                 "ok": result.ok,
@@ -146,7 +149,8 @@ async def lifespan(app: FastAPI):
 
     audit = AuditLog(settings.db_path)
     executor = Executor(client)
-    control = ControlPlane(executor, resolver, audit)
+    policy = load_policy(settings.policy_file)
+    control = ControlPlane(executor, resolver, audit, policy)
     agent = AgentLoop(settings, audit)
 
     pending_handler = {"fn": None}

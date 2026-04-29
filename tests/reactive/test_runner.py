@@ -4,6 +4,7 @@ from banbu.audit.log import AuditLog
 from banbu.control.plane import ControlPlane
 from banbu.devices.definition import DeviceSpec, ResolvedDevice
 from banbu.devices.resolver import DeviceResolver
+from banbu.policy.access import AccessPolicy, AccessPolicyFile
 from banbu.reactive.runner import ReactiveRunner
 from banbu.scenes.definition import Scene
 from banbu.turn.model import Turn
@@ -94,6 +95,31 @@ def _entry_scene() -> Scene:
     )
 
 
+def _policy(user_id: str = "user_1") -> AccessPolicy:
+    return AccessPolicy(
+        AccessPolicyFile.model_validate(
+            {
+                "reactive_users": {
+                    user_id: {
+                        "home_id": "home_a",
+                        "allowed": [
+                            {
+                                "device": "switch_entry_light",
+                                "actions": ["turn_on", "turn_off"],
+                            }
+                        ],
+                    }
+                },
+                "safety": {
+                    "high_risk_roles": ["siren"],
+                    "high_risk_actions": ["alarm_burglar", "alarm_fire"],
+                    "proactive_allowed_scenes": [],
+                },
+            }
+        )
+    )
+
+
 def test_turn_from_reactive_sets_thread_identity() -> None:
     turn = Turn.from_reactive("打开玄关灯", home_id="home_a", user_id="user_1")
 
@@ -111,7 +137,7 @@ async def test_runner_executes_matched_turn_through_control_plane(tmp_path) -> N
     resolver = _resolver()
     audit = AuditLog(tmp_path / "audit.sqlite")
     executor = FakeExecutor()
-    control = ControlPlane(executor, resolver, audit)
+    control = ControlPlane(executor, resolver, audit, _policy())
     runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
     turn = Turn.from_reactive("打开玄关灯", home_id="home_a", user_id="user_1")
 
@@ -140,7 +166,7 @@ async def test_runner_rejects_unknown_device_without_execution(tmp_path) -> None
     resolver = _resolver()
     audit = AuditLog(tmp_path / "audit.sqlite")
     executor = FakeExecutor()
-    control = ControlPlane(executor, resolver, audit)
+    control = ControlPlane(executor, resolver, audit, _policy())
     runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
     turn = Turn.from_reactive("打开厨房灯", home_id="home_a", user_id="user_1")
 
@@ -161,7 +187,7 @@ async def test_runner_with_scene_guard_executes_matched_scene_device(tmp_path) -
     resolver = _resolver()
     audit = AuditLog(tmp_path / "audit.sqlite")
     executor = FakeExecutor()
-    control = ControlPlane(executor, resolver, audit)
+    control = ControlPlane(executor, resolver, audit, _policy())
     runner = ReactiveRunner(resolver=resolver, control=control, audit=audit, scenes=[_entry_scene()])
     turn = Turn.from_reactive("打开玄关灯", home_id="home_a", user_id="user_1")
 
@@ -189,7 +215,7 @@ async def test_runner_with_scene_guard_rejects_no_match_without_execution(tmp_pa
     resolver = _resolver_with_kitchen_light()
     audit = AuditLog(tmp_path / "audit.sqlite")
     executor = FakeExecutor()
-    control = ControlPlane(executor, resolver, audit)
+    control = ControlPlane(executor, resolver, audit, _policy())
     runner = ReactiveRunner(resolver=resolver, control=control, audit=audit, scenes=[_entry_scene()])
     turn = Turn.from_reactive("打开厨房灯", home_id="home_a", user_id="user_1")
 

@@ -24,6 +24,7 @@ from banbu.adapters.iot_client import IoTError
 from banbu.audit.log import AuditLog
 from banbu.devices.definition import effective_actions
 from banbu.devices.resolver import DeviceResolver
+from banbu.policy.access import AccessPolicy, AccessRequest, Actor
 
 from .executor import Executor
 
@@ -50,12 +51,14 @@ class ControlPlane:
         executor: Executor,
         resolver: DeviceResolver,
         audit: AuditLog,
+        policy: AccessPolicy,
         *,
         idempotency_window_seconds: float = 5.0,
     ) -> None:
         self._executor = executor
         self._resolver = resolver
         self._audit = audit
+        self._policy = policy
         self._window = idempotency_window_seconds
         self._recent: dict[str, float] = {}
 
@@ -105,9 +108,60 @@ class ControlPlane:
         action: str,
         params: dict[str, Any] | None = None,
         *,
+        actor: Actor,
+        home_id: str | None,
+        user_id: str | None = None,
         trigger_id: str | None = None,
         scene_id: str | None = None,
     ) -> ExecuteResult:
+        dev = self._resolver.by_local_id(local_id)
+        if dev is None:
+            e = ControlError(f"unknown local_id={local_id}")
+            log.warning("control: translate rejected %s/%s: %s", local_id, action, e)
+            self._audit.write(
+                "execute_result",
+                {"local_id": local_id, "action": action, "ok": False, "error": str(e)},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            return ExecuteResult(ok=False, local_id=local_id, action=action, payload={}, error=str(e))
+
+        decision = self._policy.authorize(
+            AccessRequest(
+                actor=actor,
+                home_id=home_id,
+                user_id=user_id,
+                device=dev,
+                action=action,
+                scene_id=scene_id,
+            )
+        )
+        if not decision.allowed:
+            log.warning("control: policy denied %s/%s: %s", local_id, action, decision.reason)
+            denied_payload = {
+                "actor": actor,
+                "home_id": home_id,
+                "user_id": user_id,
+                "local_id": local_id,
+                "friendly_name": dev.spec.friendly_name,
+                "role": dev.spec.role,
+                "action": action,
+                "reason": decision.reason,
+            }
+            self._audit.write(
+                "policy_denied",
+                denied_payload,
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            self._audit.write(
+                "execute_result",
+                {**denied_payload, "ok": False, "error": decision.reason},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            return ExecuteResult(ok=False, local_id=local_id, action=action, payload={}, error=decision.reason)
+
         try:
             payload = self.translate(local_id, action, params)
         except ControlError as e:
