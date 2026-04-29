@@ -13,6 +13,7 @@ from banbu.ingest.event import DeviceEvent
 from banbu.scenes.definition import Scene
 from banbu.scenes.reverse_index import ReverseIndex
 from banbu.scenes.runtime.base import OnHit, SceneRuntime
+from banbu.scenes.runtime.duration import DurationSceneRuntime
 from banbu.scenes.runtime.edge import EdgeSceneRuntime
 from banbu.scenes.runtime.sequential import SequentialSceneRuntime
 from banbu.scenes.runtime.vision_match import VisionMatchSceneRuntime
@@ -45,6 +46,10 @@ class Dispatcher:
                 )
             elif scene.kind == "windowed_all":
                 self._runtimes[scene.scene_id] = WindowedAllSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "duration_triggered":
+                self._runtimes[scene.scene_id] = DurationSceneRuntime(
                     scene, cache, home_id=home_id, on_hit=on_hit
                 )
             elif scene.kind == "vision_match":
@@ -94,3 +99,9 @@ class Dispatcher:
                 if runtime is None:
                     continue
                 runtime.on_event(event, change)
+
+    def on_tick(self) -> None:
+        for runtime in self._runtimes.values():
+            on_tick = getattr(runtime, "on_tick", None)
+            if on_tick is not None:
+                on_tick()

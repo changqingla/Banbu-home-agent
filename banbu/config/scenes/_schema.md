@@ -5,7 +5,7 @@
 ```yaml
 scene_id: entry_auto_light_v1     # 全局唯一 ID
 name: 进门自动开灯                 # 人类可读名称
-kind: sequential                  # sequential / edge_triggered / windowed_all / vision_match
+kind: sequential                  # sequential / edge_triggered / windowed_all / duration_triggered / vision_match
 
 trigger:
   steps:
@@ -62,4 +62,17 @@ trigger:
     - device: smoke_detector_1
       field: payload.smoke
       transition: "false->true"
+```
+
+`duration_triggered` 用 `trigger.condition` 表达状态条件，用 `duration_seconds`
+表达该状态必须连续保持多久：
+
+```yaml
+kind: duration_triggered
+trigger:
+  duration_seconds: 600
+  condition:
+    device: presence_radar_1
+    field: payload.presence
+    value: false
 ```
