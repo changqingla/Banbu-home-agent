@@ -81,7 +81,7 @@ async def build_registry(
     iot_devices = await client.list_devices()
     by_name: dict[str, dict[str, Any]] = {d["friendly_name"]: d for d in iot_devices}
 
-    missing = [s.friendly_name for s in declared if s.friendly_name not in by_name]
+    missing = [s.friendly_name for s in declared if not s.virtual and s.friendly_name not in by_name]
     if missing:
         log.warning(
             "devices.yaml references friendly_names not found on IoT platform (offline?), skipping: %s",
@@ -90,8 +90,38 @@ async def build_registry(
 
     resolved: list[ResolvedDevice] = []
     errors: list[str] = []
+    used_virtual_ids: set[int] = set()
 
     for spec in declared:
+        if spec.virtual:
+            if spec.local_id is None:
+                errors.append(f"{spec.friendly_name}: virtual devices must set local_id")
+                continue
+            if spec.local_id >= 0:
+                errors.append(f"{spec.friendly_name}: virtual local_id should be negative, got {spec.local_id}")
+                continue
+            if spec.local_id in used_virtual_ids:
+                errors.append(f"{spec.friendly_name}: duplicate virtual local_id {spec.local_id}")
+                continue
+            used_virtual_ids.add(spec.local_id)
+            caps = set(spec.capabilities or spec.care_fields)
+            missing_caps = [f for f in spec.care_fields if f not in caps]
+            if missing_caps:
+                errors.append(
+                    f"{spec.friendly_name}: care_fields {missing_caps} not in virtual capabilities {sorted(caps)}"
+                )
+                continue
+            resolved.append(
+                ResolvedDevice(
+                    spec=spec,
+                    local_id=spec.local_id,
+                    ieee_address=spec.ieee_address or f"virtual:{spec.friendly_name}",
+                    model=spec.model or "virtual",
+                    capabilities=caps,
+                )
+            )
+            continue
+
         if spec.friendly_name not in by_name:
             continue
         iot_dev = by_name[spec.friendly_name]
@@ -129,12 +159,19 @@ async def build_registry(
             )
         )
 
-    if errors:
-        joined = "\n  - ".join(errors)
-        raise RegistryError(f"devices.yaml validation errors:\n  - {joined}")
+        if errors:
+            joined = "\n  - ".join(errors)
+            raise RegistryError(f"devices.yaml validation errors:\n  - {joined}")
 
     if configure_emergency:
         for d in resolved:
+            if d.spec.virtual:
+                log.info(
+                    "report-config skipped for virtual device %s (local_id=%d)",
+                    d.spec.friendly_name,
+                    d.local_id,
+                )
+                continue
             if not d.spec.care_fields:
                 continue
             try:

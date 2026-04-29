@@ -14,6 +14,7 @@ from banbu.scenes.definition import Scene
 from banbu.scenes.reverse_index import ReverseIndex
 from banbu.scenes.runtime.base import OnHit, SceneRuntime
 from banbu.scenes.runtime.sequential import SequentialSceneRuntime
+from banbu.scenes.runtime.vision_match import VisionMatchSceneRuntime
 from banbu.state.snapshot_cache import SnapshotCache
 
 log = logging.getLogger(__name__)
@@ -30,11 +31,16 @@ class Dispatcher:
         on_hit: OnHit | None = None,
     ) -> None:
         self._reverse_index = reverse_index
-        self._runtimes: dict[str, SceneRuntime] = {
-            scene.scene_id: SequentialSceneRuntime(scene, cache, home_id=home_id, on_hit=on_hit)
-            for scene in scenes
-            if scene.kind == "sequential"
-        }
+        self._runtimes: dict[str, SceneRuntime] = {}
+        for scene in scenes:
+            if scene.kind == "sequential":
+                self._runtimes[scene.scene_id] = SequentialSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "vision_match":
+                self._runtimes[scene.scene_id] = VisionMatchSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
         unsupported = [s.scene_id for s in scenes if s.scene_id not in self._runtimes]
         if unsupported:
             log.warning("scenes with unsupported kind ignored in v1: %s", unsupported)

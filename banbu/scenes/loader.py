@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from banbu.devices.resolver import DeviceResolver
 
-from .definition import Scene
+from .definition import Scene, Trigger, VisionTrigger
 
 log = logging.getLogger(__name__)
 
@@ -38,15 +38,30 @@ def _validate_against_devices(scene: Scene, resolver: DeviceResolver) -> list[st
         if resolver.by_name(name) is None:
             errors.append(f"unknown device {name!r} (not in devices.yaml)")
 
-    for step in scene.trigger.steps:
-        dev = resolver.by_name(step.device)
-        if dev is None:
-            continue
-        leaf = _strip_payload_prefix(step.field)
-        if leaf not in dev.capabilities:
-            errors.append(
-                f"trigger step on {step.device}: field {step.field!r} not in capabilities {sorted(dev.capabilities)}"
-            )
+    if isinstance(scene.trigger, Trigger):
+        for step in scene.trigger.steps:
+            dev = resolver.by_name(step.device)
+            if dev is None:
+                continue
+            leaf = _strip_payload_prefix(step.field)
+            if leaf not in dev.capabilities:
+                errors.append(
+                    f"trigger step on {step.device}: field {step.field!r} not in capabilities {sorted(dev.capabilities)}"
+                )
+    elif isinstance(scene.trigger, VisionTrigger):
+        dev = resolver.by_name(scene.trigger.device)
+        if dev is not None:
+            for field in (
+                scene.trigger.field,
+                scene.trigger.confidence_field,
+                scene.trigger.detected_field,
+                scene.trigger.frame_id_field,
+            ):
+                leaf = _strip_payload_prefix(field)
+                if leaf not in dev.capabilities:
+                    errors.append(
+                        f"vision trigger on {scene.trigger.device}: field {field!r} not in capabilities {sorted(dev.capabilities)}"
+                    )
 
     for pre in scene.preconditions:
         dev = resolver.by_name(pre.device)
@@ -100,8 +115,9 @@ def load_scenes(scenes_dir: Path, resolver: DeviceResolver) -> list[Scene]:
 
         scenes.append(scene)
         seen_ids.add(scene.scene_id)
+        trigger_count = len(scene.trigger.steps) if isinstance(scene.trigger, Trigger) else 1
         log.info("loaded scene %s from %s (%d trigger steps, %d preconditions)",
-                 scene.scene_id, path.name, len(scene.trigger.steps), len(scene.preconditions))
+                 scene.scene_id, path.name, trigger_count, len(scene.preconditions))
 
     if errors:
         joined = "\n  - ".join(errors)

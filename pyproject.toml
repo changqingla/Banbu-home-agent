@@ -21,6 +21,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
 ]
+vision = [
+    "opencv-python-headless>=4.9",
+]
 
 [project.scripts]
 banbu-probe = "banbu.cli.probe:main"

@@ -3,6 +3,14 @@
 # 若设备尚未重命名，friendly_name 默认就是 ieee_address（如 0xa4c138c1dfcc3e7e）。
 
 devices:
+  - friendly_name: entry_camera_vision_1
+    role: vision_detector
+    virtual: true
+    local_id: -1001
+    ieee_address: virtual:entry_camera_vision_1
+    care_fields: [scene_id, detected, confidence, reason, frame_id, frame_at]
+    capabilities: [scene_id, detected, confidence, reason, frame_id, frame_at]
+
   - friendly_name: door_sensor_1
     room: 玄关
     role: door_sensor

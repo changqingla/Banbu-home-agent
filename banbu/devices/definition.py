@@ -10,6 +10,11 @@ class DeviceSpec(BaseModel):
     role: str
     care_fields: list[str] = Field(default_factory=list)
     actions: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    virtual: bool = False
+    local_id: int | None = None
+    ieee_address: str | None = None
+    model: str = "virtual"
+    capabilities: list[str] | None = None
 
 
 class DevicesFile(BaseModel):

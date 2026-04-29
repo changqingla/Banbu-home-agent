@@ -41,6 +41,7 @@ from banbu.scenes.reverse_index import build_reverse_index
 from banbu.state.snapshot_cache import SnapshotCache
 from banbu.turn.builder import from_trigger
 from banbu.turn.model import ProactiveTrigger
+from banbu.vision.service import VisionService
 
 log = logging.getLogger(__name__)
 
@@ -187,6 +188,8 @@ async def lifespan(app: FastAPI):
         on_event=dispatcher.on_event,
     )
     poller.start()
+    vision_service = VisionService(settings)
+    vision_service.start()
 
     public_url = f"http://{_lan_ip()}:{settings.port}{settings.webhook_path}"
     log.info("=" * 70)
@@ -198,6 +201,7 @@ async def lifespan(app: FastAPI):
     app.state.resolver = resolver
     app.state.cache = cache
     app.state.poller = poller
+    app.state.vision_service = vision_service
     app.state.dispatcher = dispatcher
     app.state.scenes = scenes
     app.state.audit = audit
@@ -207,6 +211,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await vision_service.stop()
         await poller.stop()
         await client.aclose()
 

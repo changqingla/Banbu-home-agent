@@ -1,0 +1,42 @@
+scene_id: hand_on_cheek_color_temp_light_v1
+name: Hand-on-cheek pose turns on color temperature light
+kind: vision_match
+
+trigger:
+  device: entry_camera_vision_1
+  field: payload.scene_id
+  value: hand_on_cheek_color_temp_light_v1
+  confidence_field: payload.confidence
+  detected_field: payload.detected
+  frame_id_field: payload.frame_id
+
+vision_policy:
+  confidence_threshold: 0.7
+  consecutive_hits: 1
+  reset_on_miss: true
+
+context_devices:
+  trigger:
+    - entry_camera_vision_1
+  context_only:
+    - "0xa4c1388ce42078b7"
+
+preconditions:
+  - device: "0xa4c1388ce42078b7"
+    field: payload.state
+    op: neq
+    value: "ON"
+    on_missing: pass
+
+intent: Turn on the color temperature light when vision detects a person resting their cheek or chin on their hand
+
+actions_hint:
+  - tool: execute_plan
+    args:
+      device: "0xa4c1388ce42078b7"
+      action: turn_on
+
+policy:
+  cooldown_seconds: 30
+  inflight_seconds: 20
+  priority: 6

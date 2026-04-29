@@ -72,6 +72,15 @@ class Trigger(BaseModel):
     steps: list[TriggerStep] = Field(min_length=1)
 
 
+class VisionTrigger(BaseModel):
+    device: str
+    field: str = "payload.scene_id"
+    value: str
+    confidence_field: str = "payload.confidence"
+    detected_field: str = "payload.detected"
+    frame_id_field: str = "payload.frame_id"
+
+
 class ContextDevices(BaseModel):
     trigger: list[str] = Field(default_factory=list)
     context_only: list[str] = Field(default_factory=list)
@@ -100,11 +109,18 @@ class Policy(BaseModel):
     priority: int = 5
 
 
+class VisionPolicy(BaseModel):
+    confidence_threshold: float = 0.7
+    consecutive_hits: int = Field(default=2, ge=1)
+    reset_on_miss: bool = True
+
+
 class Scene(BaseModel):
     scene_id: str
     name: str
-    kind: Literal["sequential"] = "sequential"
-    trigger: Trigger
+    kind: Literal["sequential", "vision_match"] = "sequential"
+    trigger: Trigger | VisionTrigger
+    vision_policy: VisionPolicy = Field(default_factory=VisionPolicy)
     context_devices: ContextDevices = Field(default_factory=ContextDevices)
     preconditions: list[Precondition] = Field(default_factory=list)
     intent: str = ""
@@ -118,8 +134,19 @@ class Scene(BaseModel):
             raise ValueError("scene_id must be a non-empty token without spaces")
         return v
 
+    @model_validator(mode="after")
+    def _trigger_matches_kind(self) -> "Scene":
+        if self.kind == "sequential" and not isinstance(self.trigger, Trigger):
+            raise ValueError("sequential scenes require trigger.steps")
+        if self.kind == "vision_match" and not isinstance(self.trigger, VisionTrigger):
+            raise ValueError("vision_match scenes require trigger.device/field/value")
+        return self
+
     def trigger_devices(self) -> set[str]:
-        names: set[str] = {step.device for step in self.trigger.steps}
+        if isinstance(self.trigger, VisionTrigger):
+            names: set[str] = {self.trigger.device}
+        else:
+            names = {step.device for step in self.trigger.steps}
         names.update(self.context_devices.trigger)
         return names
 

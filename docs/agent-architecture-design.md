@@ -138,16 +138,28 @@ flowchart TD
     end
 
     subgraph Proactive["主动触发轮次（系统主动触发）"]
-        DEV["设备事件上报"]
-
-        subgraph SceneMapping["场景映射"]
-            SENSOR["传感器信号决策\n门磁 · PIR · 毫米波 · 温湿度"]
-            VISION["视觉模块决策\n摄像头 · 图像识别"]
+        subgraph EventSources["事件源设备层"]
+            IOT_DEV["真实 IoT 设备\n门磁 · PIR · 毫米波 · 温湿度"]
+            VIRTUAL_CAM["视觉虚拟设备\nentry_camera_vision_1"]
         end
 
+        subgraph VisionProducer["视觉事件生产者"]
+            RTSP["RTSP 视频流"]
+            MOTION["运动门控\n120ms 抽帧 · 32x32 差分"]
+            VLM["VLM 场景识别\n手托腮等视觉场景"]
+            VSTATE["视觉设备状态\nscene_id · detected · confidence"]
+        end
+
+        BATCH["统一事件入口\nPOST /api/v2/events/batch"]
+        NORM["事件归一化\n真实/虚拟设备 payload → DeviceEvent"]
+        SNAP["快照缓存更新\nSnapshotCache"]
         RIDX["反向索引\n设备字段变化 → 关联场景列表"]
-        CVLLM["CV LLM 模型\n图像理解 → 语义场景匹配"]
-        SCENE_SEL["场景运行时状态机\n边沿 / 持续 / 顺序 触发判断"]
+
+        subgraph RuntimeStage["Scene Runtime"]
+            SENSOR_RT["传感器场景运行时\nsequential / edge / duration"]
+            VISION_RT["视觉场景运行时\nvision_match"]
+        end
+
         PTRIG["主动触发任务单\n触发ID · 场景ID · 触发事实"]
     end
 
@@ -172,13 +184,19 @@ flowchart TD
     U --> RAG
     RAG --> TURN
 
-    DEV --> SENSOR
-    DEV --> VISION
-    SENSOR --> RIDX
-    VISION --> CVLLM
-    RIDX --> SCENE_SEL
-    CVLLM --> SCENE_SEL
-    SCENE_SEL --> PTRIG
+    RTSP --> MOTION
+    MOTION --> VLM
+    VLM --> VSTATE
+    VSTATE --> VIRTUAL_CAM
+    IOT_DEV --> BATCH
+    VIRTUAL_CAM --> BATCH
+    BATCH --> NORM
+    NORM --> SNAP
+    SNAP --> RIDX
+    RIDX --> SENSOR_RT
+    RIDX --> VISION_RT
+    SENSOR_RT --> PTRIG
+    VISION_RT --> PTRIG
     PTRIG --> TURN
 
     TURN --> CTX_SEL
@@ -196,9 +214,9 @@ flowchart TD
 
   
 
-1. **触发段**：设备事件进入系统，被路由到相关场景
+1. **触发段**：传感器事件和视觉事件统一进入 `/api/v2/events/batch`，归一化后被路由到相关场景
 
-2. **建模段**：场景命中后，被转成一个统一的处理对象
+2. **建模段**：Scene Runtime 判断场景命中后，被转成一个统一的处理对象
 
 3. **上下文段**：系统为这次处理选择和装配必要上下文
 

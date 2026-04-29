@@ -14,7 +14,7 @@ from typing import Literal
 
 from banbu.devices.resolver import DeviceResolver
 
-from .definition import Scene
+from .definition import Scene, Trigger, VisionTrigger
 
 Role = Literal["trigger", "context_only"]
 
@@ -46,8 +46,17 @@ def _normalize(field: str) -> str:
 def build_reverse_index(scenes: list[Scene], resolver: DeviceResolver) -> ReverseIndex:
     idx = ReverseIndex()
     for scene in scenes:
-        for step in scene.trigger.steps:
-            idx.add(step.device, _normalize(step.field), scene.scene_id, "trigger")
+        if isinstance(scene.trigger, Trigger):
+            for step in scene.trigger.steps:
+                idx.add(step.device, _normalize(step.field), scene.scene_id, "trigger")
+        elif isinstance(scene.trigger, VisionTrigger):
+            for field in (
+                scene.trigger.field,
+                scene.trigger.confidence_field,
+                scene.trigger.detected_field,
+                scene.trigger.frame_id_field,
+            ):
+                idx.add(scene.trigger.device, _normalize(field), scene.scene_id, "trigger")
         for name in scene.context_devices.context_only:
             dev = resolver.by_name(name)
             if dev is None:

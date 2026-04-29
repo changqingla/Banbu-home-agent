@@ -25,16 +25,12 @@ import time
 from typing import Any
 
 from banbu.ingest.event import DeviceEvent, FieldChange
-from banbu.scenes.definition import (
-    Precondition,
-    Scene,
-    TriggerStep,
-    WILDCARD,
-)
+from banbu.scenes.definition import Scene, Trigger, TriggerStep, WILDCARD
 from banbu.state.snapshot_cache import MISSING, SnapshotCache
 from banbu.turn.model import ProactiveTrigger
 
 from .base import OnHit, SceneRuntime
+from .conditions import PreconditionFailed, check_precondition
 from .lifecycle import SceneState
 
 log = logging.getLogger(__name__)
@@ -56,43 +52,6 @@ def _matches_step(step: TriggerStep, event: DeviceEvent, change: FieldChange) ->
     return _match_value(step.old_value, change.old) and _match_value(step.new_value, change.new)
 
 
-def _eval_op(op: str, lhs: Any, rhs: Any) -> bool:
-    if op == "eq":
-        return lhs == rhs
-    if op == "neq":
-        return lhs != rhs
-    if op == "lt":
-        return lhs < rhs
-    if op == "lte":
-        return lhs <= rhs
-    if op == "gt":
-        return lhs > rhs
-    if op == "gte":
-        return lhs >= rhs
-    if op == "in":
-        return lhs in rhs
-    raise ValueError(f"unknown op: {op}")
-
-
-class PreconditionFailed(RuntimeError):
-    pass
-
-
-def _check_precondition(pre: Precondition, cache: SnapshotCache) -> tuple[bool, str]:
-    value, _ts = cache.field(pre.device, pre.field)
-    if value is MISSING:
-        if pre.on_missing == "skip":
-            return False, f"{pre.device}.{pre.field} missing → skip"
-        if pre.on_missing == "pass":
-            return True, f"{pre.device}.{pre.field} missing → pass"
-        raise PreconditionFailed(f"{pre.device}.{pre.field} missing → fail")
-    try:
-        ok = _eval_op(pre.op, value, pre.value)
-    except TypeError as e:
-        return False, f"{pre.device}.{pre.field}={value!r} {pre.op} {pre.value!r} → type error ({e})"
-    return ok, f"{pre.device}.{pre.field}={value!r} {pre.op} {pre.value!r} → {ok}"
-
-
 class SequentialSceneRuntime(SceneRuntime):
     def __init__(
         self,
@@ -105,6 +64,8 @@ class SequentialSceneRuntime(SceneRuntime):
         super().__init__(scene, on_hit=on_hit)
         if scene.kind != "sequential":
             raise ValueError(f"SequentialSceneRuntime got kind={scene.kind!r}")
+        if not isinstance(scene.trigger, Trigger):
+            raise ValueError("sequential runtime requires trigger.steps")
         self._cache = cache
         self._home_id = home_id
         self.state = SceneState()
@@ -112,6 +73,7 @@ class SequentialSceneRuntime(SceneRuntime):
 
     def on_event(self, event: DeviceEvent, change: FieldChange) -> None:
         scene = self.scene
+        assert isinstance(scene.trigger, Trigger)
         steps = scene.trigger.steps
         st = self.state
         now = time.time()
@@ -179,7 +141,7 @@ class SequentialSceneRuntime(SceneRuntime):
             results: list[str] = []
             all_pass = True
             for pre in scene.preconditions:
-                ok, summary = _check_precondition(pre, self._cache)
+                ok, summary = check_precondition(pre, self._cache)
                 results.append(summary)
                 if not ok:
                     all_pass = False

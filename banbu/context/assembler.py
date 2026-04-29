@@ -10,6 +10,7 @@ import json
 
 from banbu.agent.prompts import SYSTEM_POLICY
 from banbu.devices.definition import effective_actions
+from banbu.scenes.definition import Trigger, VisionTrigger
 
 from .selector import SelectedContext
 
@@ -26,11 +27,19 @@ def _device_block(dev, snap) -> str:
 
 
 def _scene_block(scene, name_to_local_id: dict) -> str:
-    steps = "; ".join(
-        f"step{i+1}: {s.device}.{s.field} {s.transition}"
-        + (f" within={s.within_seconds}s" if s.within_seconds else "")
-        for i, s in enumerate(scene.trigger.steps)
-    )
+    if isinstance(scene.trigger, Trigger):
+        steps = "; ".join(
+            f"step{i+1}: {s.device}.{s.field} {s.transition}"
+            + (f" within={s.within_seconds}s" if s.within_seconds else "")
+            for i, s in enumerate(scene.trigger.steps)
+        )
+    else:
+        assert isinstance(scene.trigger, VisionTrigger)
+        steps = (
+            f"vision: {scene.trigger.device}.{scene.trigger.field} == {scene.trigger.value!r}; "
+            f"confidence>={scene.vision_policy.confidence_threshold}; "
+            f"consecutive_hits={scene.vision_policy.consecutive_hits}"
+        )
     pres = "; ".join(
         f"{p.device}.{p.field} {p.op} {p.value!r} (on_missing={p.on_missing})"
         for p in scene.preconditions
@@ -57,10 +66,12 @@ def _trigger_facts_block(ctx: SelectedContext) -> str:
     if trg is None:
         return "[trigger] (no proactive trigger)"
     summary = "\n  ".join(trg.source_event_summaries) or "(no summaries)"
+    facts = json.dumps(trg.facts, ensure_ascii=False, sort_keys=True)
     return (
         f"[trigger] id={trg.trigger_id} scene={trg.scene_id} home={trg.home_id}\n"
         f"  triggered_at={trg.triggered_at:.0f}\n"
-        f"  source events:\n  {summary}"
+        f"  source events:\n  {summary}\n"
+        f"  facts={facts}"
     )
 
 

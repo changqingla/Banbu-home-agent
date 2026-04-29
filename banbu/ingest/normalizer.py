@@ -96,6 +96,7 @@ def normalize_batch(
 
     changed_at: str | None = body.get("changed_at")
     reported_at: str | None = body.get("reported_at")
+    event_source = str(body.get("source") or source)
     items = body.get("payload", [])
 
     if not isinstance(items, list):
@@ -141,7 +142,7 @@ def normalize_batch(
             ieee_address=device.ieee_address,
             payload=values,
             changes=changes,
-            source=source,
+            source=event_source,
             sequence=sequence if isinstance(sequence, int) else None,
             changed_at=changed_at,
             reported_at=reported_at,
