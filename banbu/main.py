@@ -146,7 +146,7 @@ async def lifespan(app: FastAPI):
 
     audit = AuditLog(settings.db_path)
     executor = Executor(client)
-    control = ControlPlane(executor, resolver, audit)
+    control = ControlPlane(executor, resolver, cache, audit)
     agent = AgentLoop(settings, audit)
 
     pending_handler = {"fn": None}
