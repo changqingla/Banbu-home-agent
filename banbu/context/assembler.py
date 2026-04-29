@@ -87,6 +87,16 @@ def _trigger_facts_block(ctx: SelectedContext) -> str:
     )
 
 
+def _feedback_block(ctx: SelectedContext) -> str:
+    if not ctx.feedback:
+        return "[feedback]\n  (none)"
+    rows = [
+        json.dumps(entry.to_dict(), ensure_ascii=False, sort_keys=True)
+        for entry in ctx.feedback
+    ]
+    return "[feedback]\n  " + "\n  ".join(rows)
+
+
 def assemble_blocks(ctx: SelectedContext) -> list[str]:
     blocks: list[str] = []
 
@@ -94,6 +104,7 @@ def assemble_blocks(ctx: SelectedContext) -> list[str]:
     blocks.append(f"[system policy]\n{SYSTEM_POLICY}")
     blocks.append(_scene_block(ctx.scene, name_to_local_id))
     blocks.append(_trigger_facts_block(ctx))
+    blocks.append(_feedback_block(ctx))
 
     for dev in ctx.devices:
         snap = ctx.snapshots.get(dev.spec.friendly_name)
