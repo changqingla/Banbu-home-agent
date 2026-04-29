@@ -1,26 +1,26 @@
-scene_id: safety_gas_then_smoke_v1
-name: Dual alarm - gas then smoke
-kind: sequential
+scene_id: safety_smoke_gas_windowed_v1
+name: Dual alarm - smoke and gas within window
+kind: windowed_all
 
 trigger:
-  steps:
-    - device: "0xa4c13864ef9786ad"        # ZG-225Z gas sensor local_id=9
-      field: payload.gas
-      transition: "false->true"
+  window_seconds: 10
+  conditions:
     - device: "0xa4c138a7419cff49"        # PA-44Z smoke detector local_id=11
       field: payload.smoke
       transition: "false->true"
-      within_seconds: 10
+    - device: "0xa4c13864ef9786ad"        # ZG-225Z gas sensor local_id=9
+      field: payload.gas
+      transition: "false->true"
 
 context_devices:
   trigger:
-    - "0xa4c13864ef9786ad"
     - "0xa4c138a7419cff49"
+    - "0xa4c13864ef9786ad"
   context_only: []
 
 preconditions: []
 
-intent: Fire alarm when gas and smoke both trigger within 10s
+intent: Fire alarm when smoke and gas both trigger within 10s in any order
 
 actions_hint:
   - tool: execute_plan

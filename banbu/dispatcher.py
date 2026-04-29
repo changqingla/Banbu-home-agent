@@ -16,6 +16,7 @@ from banbu.scenes.runtime.base import OnHit, SceneRuntime
 from banbu.scenes.runtime.edge import EdgeSceneRuntime
 from banbu.scenes.runtime.sequential import SequentialSceneRuntime
 from banbu.scenes.runtime.vision_match import VisionMatchSceneRuntime
+from banbu.scenes.runtime.windowed_all import WindowedAllSceneRuntime
 from banbu.state.snapshot_cache import SnapshotCache
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,10 @@ class Dispatcher:
                 )
             elif scene.kind == "edge_triggered":
                 self._runtimes[scene.scene_id] = EdgeSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "windowed_all":
+                self._runtimes[scene.scene_id] = WindowedAllSceneRuntime(
                     scene, cache, home_id=home_id, on_hit=on_hit
                 )
             elif scene.kind == "vision_match":

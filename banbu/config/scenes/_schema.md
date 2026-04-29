@@ -5,7 +5,7 @@
 ```yaml
 scene_id: entry_auto_light_v1     # 全局唯一 ID
 name: 进门自动开灯                 # 人类可读名称
-kind: sequential                  # sequential / edge_triggered / vision_match
+kind: sequential                  # sequential / edge_triggered / windowed_all / vision_match
 
 trigger:
   steps:
@@ -47,3 +47,19 @@ policy:
 字段含义见 `docs/implementation-plan.md` §4.2 / §4.2.1。
 
 `edge_triggered` 使用同样的 `trigger.steps` 结构，但必须且只能配置一个 step。
+
+`windowed_all` 用 `trigger.conditions` 表达无序条件集合，用 `window_seconds`
+表达所有条件必须落入的窗口：
+
+```yaml
+kind: windowed_all
+trigger:
+  window_seconds: 10
+  conditions:
+    - device: gas_sensor_1
+      field: payload.gas
+      transition: "false->true"
+    - device: smoke_detector_1
+      field: payload.smoke
+      transition: "false->true"
+```
