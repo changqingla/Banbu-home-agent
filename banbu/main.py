@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
     )
 
     client = IoTClient(settings)
-    resolver = await build_registry(client, settings.devices_file)
+    resolver = await build_registry(client, settings.devices_file, strict=settings.registry_strict)
     cache = SnapshotCache(resolver)
     await cache.bootstrap(client)
 
