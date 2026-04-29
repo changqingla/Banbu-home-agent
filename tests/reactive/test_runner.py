@@ -1,0 +1,97 @@
+import pytest
+
+from banbu.audit.log import AuditLog
+from banbu.control.plane import ControlPlane
+from banbu.devices.definition import DeviceSpec, ResolvedDevice
+from banbu.devices.resolver import DeviceResolver
+from banbu.reactive.runner import ReactiveRunner
+from banbu.turn.model import Turn
+
+
+class FakeExecutor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, dict]] = []
+
+    async def run(self, local_id: int, payload: dict) -> None:
+        self.calls.append((local_id, payload))
+
+
+def _resolver() -> DeviceResolver:
+    return DeviceResolver(
+        [
+            ResolvedDevice(
+                spec=DeviceSpec(
+                    friendly_name="switch_entry_light",
+                    room="玄关",
+                    role="light_switch",
+                    aliases=["玄关灯"],
+                ),
+                local_id=2,
+                ieee_address="0x2",
+                model="test",
+                capabilities={"state"},
+            )
+        ]
+    )
+
+
+def test_turn_from_reactive_sets_thread_identity() -> None:
+    turn = Turn.from_reactive("打开玄关灯", home_id="home_a", user_id="user_1")
+
+    assert turn.thread_type == "reactive"
+    assert turn.conversation_id == "home_a_user_1"
+    assert turn.home_id == "home_a"
+    assert turn.user_id == "user_1"
+    assert turn.utterance == "打开玄关灯"
+    assert turn.scene_id is None
+    assert turn.trigger is None
+
+
+@pytest.mark.asyncio
+async def test_runner_executes_matched_turn_through_control_plane(tmp_path) -> None:
+    resolver = _resolver()
+    audit = AuditLog(tmp_path / "audit.sqlite")
+    executor = FakeExecutor()
+    control = ControlPlane(executor, resolver, audit)
+    runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
+    turn = Turn.from_reactive("打开玄关灯", home_id="home_a", user_id="user_1")
+
+    result = await runner.run(turn)
+
+    assert result.ok is True
+    assert result.match is not None
+    assert result.match.local_id == 2
+    assert result.execution is not None
+    assert result.execution.payload == {"state": "ON"}
+    assert executor.calls == [(2, {"state": "ON"})]
+
+    rows = audit.by_trigger(turn.turn_id)
+    assert [row["kind"] for row in rows] == [
+        "reactive_turn",
+        "reactive_match",
+        "execute",
+        "execute_result",
+    ]
+    assert rows[1]["payload"]["ok"] is True
+    assert rows[1]["payload"]["action"] == "turn_on"
+
+
+@pytest.mark.asyncio
+async def test_runner_rejects_unknown_device_without_execution(tmp_path) -> None:
+    resolver = _resolver()
+    audit = AuditLog(tmp_path / "audit.sqlite")
+    executor = FakeExecutor()
+    control = ControlPlane(executor, resolver, audit)
+    runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
+    turn = Turn.from_reactive("打开厨房灯", home_id="home_a", user_id="user_1")
+
+    result = await runner.run(turn)
+
+    assert result.ok is False
+    assert result.error_kind == "unknown_device"
+    assert executor.calls == []
+
+    rows = audit.by_trigger(turn.turn_id)
+    assert [row["kind"] for row in rows] == ["reactive_turn", "reactive_match"]
+    assert rows[1]["payload"]["ok"] is False
+    assert rows[1]["payload"]["kind"] == "unknown_device"

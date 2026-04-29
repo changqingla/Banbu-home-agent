@@ -27,6 +27,7 @@ vision = [
 
 [project.scripts]
 banbu-probe = "banbu.cli.probe:main"
+banbu-reactive = "banbu.cli.reactive:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

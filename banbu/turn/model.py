@@ -42,3 +42,25 @@ class Turn:
             scene_id=trigger.scene_id,
             trigger=trigger,
         )
+
+    @classmethod
+    def from_reactive(
+        cls,
+        utterance: str,
+        *,
+        home_id: str,
+        user_id: str,
+        source: str = "cli",
+    ) -> "Turn":
+        utterance = utterance.strip()
+        if not utterance:
+            raise ValueError("reactive utterance must not be empty")
+        return cls(
+            turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+            thread_type="reactive",
+            conversation_id=f"{home_id}_{user_id}",
+            home_id=home_id,
+            user_id=user_id,
+            source=source,
+            utterance=utterance,
+        )
