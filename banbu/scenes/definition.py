@@ -137,6 +137,7 @@ class Scene(BaseModel):
     kind: Literal["sequential", "edge_triggered", "windowed_all", "duration_triggered", "vision_match"] = "sequential"
     trigger: Trigger | WindowedAllTrigger | DurationTrigger | VisionTrigger
     vision_policy: VisionPolicy = Field(default_factory=VisionPolicy)
+    vision_criteria: list[str] = Field(default_factory=list)
     context_devices: ContextDevices = Field(default_factory=ContextDevices)
     preconditions: list[Precondition] = Field(default_factory=list)
     intent: str = ""

@@ -15,6 +15,12 @@ vision_policy:
   consecutive_hits: 1
   reset_on_miss: true
 
+vision_criteria:
+  - Match only when a person is clearly supporting their cheek, chin, or side of face with a hand.
+  - The hand must be touching and holding up the face, like a resting or thinking pose.
+  - A hand merely near the face, waving, scratching, drinking, or holding a phone is not a match.
+  - If unsure, return null.
+
 context_devices:
   trigger:
     - entry_camera_vision_1

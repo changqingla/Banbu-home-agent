@@ -44,6 +44,21 @@ policy:
   priority: 5
 ```
 
+视觉场景使用 `kind: vision_match`，`trigger` 指向视觉虚拟设备，并可用
+`vision_criteria` 描述 VLM 判断标准：
+
+```yaml
+kind: vision_match
+trigger:
+  device: entry_camera_vision_1
+  field: payload.scene_id
+  value: hand_on_cheek_color_temp_light_v1
+
+vision_criteria:
+  - Match only when the visual condition is clearly present.
+  - Return null if unsure.
+```
+
 字段含义见 `docs/implementation-plan.md` §4.2 / §4.2.1。
 
 `edge_triggered` 使用同样的 `trigger.steps` 结构，但必须且只能配置一个 step。

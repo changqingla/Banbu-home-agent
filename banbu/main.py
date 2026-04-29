@@ -241,7 +241,7 @@ async def lifespan(app: FastAPI):
         on_tick=dispatcher.on_tick,
     )
     poller.start()
-    vision_service = VisionService(settings)
+    vision_service = VisionService(settings, scenes)
     vision_service.start()
 
     public_url = f"http://{_lan_ip()}:{settings.port}{settings.webhook_path}"
