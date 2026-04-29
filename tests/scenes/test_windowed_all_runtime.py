@@ -187,6 +187,8 @@ def test_windowed_all_triggers_gas_then_smoke_within_window() -> None:
         "smoke_detector_1.smoke: False->True",
         "gas_sensor_1.gas: False->True",
     ]
+    assert len(hits[0].source_event_ids) == 2
+    assert all(eid.startswith("evt_") for eid in hits[0].source_event_ids)
     assert hits[0].facts[SMOKE] == {"smoke": True}
     assert hits[0].facts[GAS] == {"gas": True}
 

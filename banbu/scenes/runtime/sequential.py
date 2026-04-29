@@ -55,6 +55,7 @@ class SequentialSceneRuntime(SceneRuntime):
         self._home_id = home_id
         self.state = SceneState()
         self._recent_events: list[str] = []
+        self._recent_event_ids: list[str] = []
 
     def on_event(self, event: DeviceEvent, change: FieldChange) -> None:
         scene = self.scene
@@ -107,14 +108,17 @@ class SequentialSceneRuntime(SceneRuntime):
                 scene.scene_id, event.friendly_name, change.field,
             )
             self._recent_events.clear()
+            self._recent_event_ids.clear()
             self._note_event(event, change)
             st.cursor = 1
             st.last_step_at = now
 
     def _note_event(self, event: DeviceEvent, change: FieldChange) -> None:
         self._recent_events.append(summarize_change(event, change))
+        self._recent_event_ids.append(event.event_id)
         if len(self._recent_events) > 10:
             self._recent_events = self._recent_events[-10:]
+            self._recent_event_ids = self._recent_event_ids[-10:]
 
     def _evaluate_and_emit(self) -> None:
         scene = self.scene
@@ -132,6 +136,7 @@ class SequentialSceneRuntime(SceneRuntime):
             log.warning("scene %s: precondition failed (%s) — abort", scene.scene_id, e)
             st.reset_cursor()
             self._recent_events.clear()
+            self._recent_event_ids.clear()
             return
 
         if not all_pass:
@@ -141,6 +146,7 @@ class SequentialSceneRuntime(SceneRuntime):
             )
             st.reset_cursor()
             self._recent_events.clear()
+            self._recent_event_ids.clear()
             return
 
         facts = self._collect_facts()
@@ -149,6 +155,7 @@ class SequentialSceneRuntime(SceneRuntime):
             home_id=self._home_id,
             facts=facts,
             source_event_summaries=list(self._recent_events),
+            source_event_ids=list(self._recent_event_ids),
         )
         st.set_inflight(scene.policy.inflight_seconds)
         log.info(
@@ -157,6 +164,7 @@ class SequentialSceneRuntime(SceneRuntime):
         )
         st.reset_cursor()
         self._recent_events.clear()
+        self._recent_event_ids.clear()
 
         if self._on_hit is not None:
             try:

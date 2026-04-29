@@ -39,6 +39,7 @@ class WindowedAllSceneRuntime(SceneRuntime):
         self.state = SceneState()
         self._condition_hits: dict[int, float] = {}
         self._condition_summaries: dict[int, str] = {}
+        self._condition_event_ids: dict[int, str] = {}
 
     def on_event(self, event: DeviceEvent, change: FieldChange) -> None:
         scene = self.scene
@@ -71,6 +72,7 @@ class WindowedAllSceneRuntime(SceneRuntime):
                 matched_any = True
                 self._condition_hits[idx] = now
                 self._condition_summaries[idx] = summarize_change(event, change)
+                self._condition_event_ids[idx] = event.event_id
                 log.info(
                     "scene %s: windowed condition %d/%d matched on %s.%s",
                     scene.scene_id,
@@ -105,6 +107,7 @@ class WindowedAllSceneRuntime(SceneRuntime):
             if now - hit_at > window:
                 self._condition_hits.pop(idx, None)
                 self._condition_summaries.pop(idx, None)
+                self._condition_event_ids.pop(idx, None)
 
     def _evaluate_and_emit(self) -> None:
         scene = self.scene
@@ -141,6 +144,10 @@ class WindowedAllSceneRuntime(SceneRuntime):
                 self._condition_summaries[idx]
                 for idx in sorted(self._condition_summaries)
             ],
+            source_event_ids=[
+                self._condition_event_ids[idx]
+                for idx in sorted(self._condition_event_ids)
+            ],
             triggered_at=now,
         )
         self.state.set_inflight(scene.policy.inflight_seconds, now=now)
@@ -162,6 +169,7 @@ class WindowedAllSceneRuntime(SceneRuntime):
     def _clear_hits(self) -> None:
         self._condition_hits.clear()
         self._condition_summaries.clear()
+        self._condition_event_ids.clear()
 
     def _collect_facts(self) -> dict[str, Any]:
         facts: dict[str, Any] = {}

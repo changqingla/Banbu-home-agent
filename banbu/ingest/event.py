@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,3 +26,4 @@ class DeviceEvent:
     changed_at: str | None = None
     reported_at: str | None = None
     previous_values: dict[str, Any] | None = None
+    event_id: str = field(default_factory=lambda: f"evt_{uuid.uuid4().hex[:16]}")

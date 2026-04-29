@@ -166,6 +166,7 @@ class VisionMatchSceneRuntime(SceneRuntime):
             home_id=self._home_id,
             facts=facts,
             source_event_summaries=[self._summary(facts)],
+            source_event_ids=[event.event_id],
             triggered_at=triggered_at,
         )
         st.set_inflight(scene.policy.inflight_seconds)

@@ -88,10 +88,12 @@ def _trigger_facts_block(ctx: SelectedContext) -> str:
     if trg is None:
         return "[trigger] (no proactive trigger)"
     summary = "\n  ".join(trg.source_event_summaries) or "(no summaries)"
+    event_ids = ", ".join(trg.source_event_ids) or "(none)"
     facts = json.dumps(trg.facts, ensure_ascii=False, sort_keys=True)
     return (
         f"[trigger] id={trg.trigger_id} scene={trg.scene_id} home={trg.home_id}\n"
         f"  triggered_at={trg.triggered_at:.0f}\n"
+        f"  source_event_ids={event_ids}\n"
         f"  source events:\n  {summary}\n"
         f"  facts={facts}"
     )

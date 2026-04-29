@@ -157,6 +157,7 @@ def test_duration_trigger_emits_after_condition_held_for_duration() -> None:
     assert hits[0].source_event_summaries == [
         "presence_radar_1.presence held False for 10.0s"
     ]
+    assert hits[0].source_event_ids == []
 
 
 def test_duration_trigger_resets_when_condition_becomes_false() -> None:

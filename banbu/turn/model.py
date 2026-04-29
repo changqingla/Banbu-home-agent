@@ -12,6 +12,7 @@ class ProactiveTrigger:
     home_id: str
     facts: dict[str, Any]
     source_event_summaries: list[str] = field(default_factory=list)
+    source_event_ids: list[str] = field(default_factory=list)
     triggered_at: float = field(default_factory=time.time)
     trigger_id: str = field(default_factory=lambda: f"trg_{uuid.uuid4().hex[:12]}")
 
@@ -30,6 +31,20 @@ class Turn:
     scene_id: str | None = None
     utterance: str | None = None
     trigger: ProactiveTrigger | None = None
+
+    @property
+    def input(self) -> "str | dict[str, Any]":
+        if self.thread_type == "reactive":
+            return self.utterance or ""
+        trg = self.trigger
+        if trg is None:
+            return {}
+        return {
+            "trigger_id": trg.trigger_id,
+            "scene_id": trg.scene_id,
+            "facts": trg.facts,
+            "source_event_ids": trg.source_event_ids,
+        }
 
     @classmethod
     def from_proactive(cls, trigger: ProactiveTrigger) -> "Turn":

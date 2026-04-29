@@ -37,6 +37,7 @@ class DurationSceneRuntime(SceneRuntime):
         self._clock = clock
         self.state = SceneState()
         self.condition_satisfied_since: float | None = None
+        self._condition_start_event_id: str | None = None
 
     def on_event(self, event: DeviceEvent, change: FieldChange) -> None:
         trigger = self._trigger
@@ -45,7 +46,7 @@ class DurationSceneRuntime(SceneRuntime):
         leaf = self._leaf_field(trigger.condition.field)
         if change.field != leaf:
             return
-        self._evaluate_condition(source=f"event {event.friendly_name}.{change.field}")
+        self._evaluate_condition(source=f"event {event.friendly_name}.{change.field}", event_id=event.event_id)
 
     def on_tick(self) -> None:
         self._evaluate_condition(source="tick")
@@ -55,7 +56,7 @@ class DurationSceneRuntime(SceneRuntime):
         assert isinstance(self.scene.trigger, DurationTrigger)
         return self.scene.trigger
 
-    def _evaluate_condition(self, *, source: str) -> None:
+    def _evaluate_condition(self, *, source: str, event_id: str | None = None) -> None:
         scene = self.scene
         st = self.state
         now = self._clock()
@@ -70,10 +71,12 @@ class DurationSceneRuntime(SceneRuntime):
                     current_value,
                 )
             self.condition_satisfied_since = None
+            self._condition_start_event_id = None
             return
 
         if self.condition_satisfied_since is None:
             self.condition_satisfied_since = now
+            self._condition_start_event_id = event_id
             log.info(
                 "scene %s: duration condition became true at %.0f by %s",
                 scene.scene_id,
@@ -145,6 +148,7 @@ class DurationSceneRuntime(SceneRuntime):
                     f"held {self._trigger.condition.value!r} for {elapsed:.1f}s"
                 )
             ],
+            source_event_ids=[self._condition_start_event_id] if self._condition_start_event_id else [],
             triggered_at=now,
         )
         self.state.set_inflight(scene.policy.inflight_seconds, now=now)
@@ -156,6 +160,7 @@ class DurationSceneRuntime(SceneRuntime):
             facts,
         )
         self.condition_satisfied_since = None
+        self._condition_start_event_id = None
 
         if self._on_hit is not None:
             try:

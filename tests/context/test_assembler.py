@@ -73,6 +73,7 @@ def test_assemble_blocks_include_tool_scene_trigger_feedback_and_device_snapshot
     assert "[scene:entry_auto_light_v1]" in blocks[2]
     assert "actions_hint: local_id=12 action=turn_on" in blocks[2]
     assert "[trigger] id=" in blocks[3]
+    assert "source_event_ids=(none)" in blocks[3]
     assert blocks[4] == "[feedback]\n  (none)"
 
     device_block = blocks[5]
