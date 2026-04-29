@@ -8,7 +8,7 @@ Selection rules (v1, proactive only):
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from banbu.devices.definition import ResolvedDevice
 from banbu.devices.resolver import DeviceResolver
@@ -24,7 +24,7 @@ class SelectedContext:
     scene: Scene
     devices: list[ResolvedDevice]
     snapshots: dict[str, Snapshot]
-    feedback: list[FeedbackEntry]
+    feedback: list[FeedbackEntry] = field(default_factory=list)
 
 
 def select(

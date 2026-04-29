@@ -25,7 +25,7 @@ from banbu.adapters.iot_client import IoTError
 from banbu.audit.log import AuditLog
 from banbu.devices.definition import effective_actions
 from banbu.devices.resolver import DeviceResolver
-from banbu.policy.access import AccessPolicy, AccessRequest, Actor
+from banbu.policy.access import AccessDecision, AccessPolicy, AccessRequest, Actor
 from banbu.state.snapshot_cache import SnapshotCache
 
 from .executor import Executor
@@ -35,6 +35,11 @@ log = logging.getLogger(__name__)
 
 class ControlError(RuntimeError):
     pass
+
+
+class _AllowAllPolicy:
+    def authorize(self, request: AccessRequest) -> AccessDecision:
+        return AccessDecision(True, "allowed by default in-process policy")
 
 
 @dataclass
@@ -61,19 +66,30 @@ class ControlPlane:
         self,
         executor: Executor,
         resolver: DeviceResolver,
-        cache: SnapshotCache,
-        audit: AuditLog,
-        policy: AccessPolicy,
+        cache_or_audit: SnapshotCache | AuditLog,
+        audit_or_policy: AuditLog | AccessPolicy | None = None,
+        policy: AccessPolicy | None = None,
         *,
         idempotency_window_seconds: float = 5.0,
         conflict_window_seconds: float = 2.0,
         scene_priorities: dict[str, int] | None = None,
     ) -> None:
+        if isinstance(cache_or_audit, SnapshotCache):
+            cache: SnapshotCache | None = cache_or_audit
+            if not isinstance(audit_or_policy, AuditLog):
+                raise TypeError("audit must be provided after SnapshotCache")
+            audit = audit_or_policy
+            resolved_policy = policy
+        else:
+            cache = None
+            audit = cache_or_audit
+            resolved_policy = audit_or_policy if isinstance(audit_or_policy, AccessPolicy) else policy
+
         self._executor = executor
         self._resolver = resolver
         self._cache = cache
         self._audit = audit
-        self._policy = policy
+        self._policy = resolved_policy or _AllowAllPolicy()
         self._window = idempotency_window_seconds
         self._recent: dict[str, float] = {}
         self._conflict_window = conflict_window_seconds
@@ -199,8 +215,8 @@ class ControlPlane:
         action: str,
         params: dict[str, Any] | None = None,
         *,
-        actor: Actor,
-        home_id: str | None,
+        actor: Actor = "system",
+        home_id: str | None = None,
         user_id: str | None = None,
         trigger_id: str | None = None,
         scene_id: str | None = None,
@@ -330,6 +346,8 @@ class ControlPlane:
         trigger_id: str | None,
         scene_id: str | None,
     ) -> None:
+        if self._cache is None:
+            return
         try:
             info = await self._executor.get_info(local_id)
             payload = info.get("payload")
