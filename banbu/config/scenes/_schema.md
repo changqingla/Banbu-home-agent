@@ -5,7 +5,7 @@
 ```yaml
 scene_id: entry_auto_light_v1     # 全局唯一 ID
 name: 进门自动开灯                 # 人类可读名称
-kind: sequential                  # v1 仅支持 sequential
+kind: sequential                  # sequential / edge_triggered / vision_match
 
 trigger:
   steps:
@@ -45,3 +45,5 @@ policy:
 ```
 
 字段含义见 `docs/implementation-plan.md` §4.2 / §4.2.1。
+
+`edge_triggered` 使用同样的 `trigger.steps` 结构，但必须且只能配置一个 step。

@@ -13,6 +13,7 @@ from banbu.ingest.event import DeviceEvent
 from banbu.scenes.definition import Scene
 from banbu.scenes.reverse_index import ReverseIndex
 from banbu.scenes.runtime.base import OnHit, SceneRuntime
+from banbu.scenes.runtime.edge import EdgeSceneRuntime
 from banbu.scenes.runtime.sequential import SequentialSceneRuntime
 from banbu.scenes.runtime.vision_match import VisionMatchSceneRuntime
 from banbu.state.snapshot_cache import SnapshotCache
@@ -35,6 +36,10 @@ class Dispatcher:
         for scene in scenes:
             if scene.kind == "sequential":
                 self._runtimes[scene.scene_id] = SequentialSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "edge_triggered":
+                self._runtimes[scene.scene_id] = EdgeSceneRuntime(
                     scene, cache, home_id=home_id, on_hit=on_hit
                 )
             elif scene.kind == "vision_match":
