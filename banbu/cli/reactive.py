@@ -19,6 +19,7 @@ from banbu.control.executor import Executor
 from banbu.control.plane import ControlPlane
 from banbu.devices.registry import RegistryError, build_registry
 from banbu.reactive.runner import ReactiveRunner, result_payload
+from banbu.scenes.loader import SceneLoadError, load_scenes
 from banbu.turn.builder import from_reactive
 
 
@@ -39,9 +40,15 @@ async def _run_utterance(utterance: str, *, user_id: str) -> int:
             print(f"[FAIL] IoT platform error: {e}", file=sys.stderr)
             return 2
 
+        try:
+            scenes = load_scenes(settings.scenes_dir, resolver)
+        except SceneLoadError as e:
+            print(f"[FAIL] {e}", file=sys.stderr)
+            return 1
+
         audit = AuditLog(settings.db_path)
         control = ControlPlane(Executor(client), resolver, audit)
-        runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
+        runner = ReactiveRunner(resolver=resolver, control=control, audit=audit, scenes=scenes)
         turn = from_reactive(
             utterance,
             home_id=settings.home_id,
