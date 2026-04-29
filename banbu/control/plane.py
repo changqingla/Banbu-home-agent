@@ -9,7 +9,8 @@ control plane:
      /exposes capability set.
   4. Idempotency: hash(trigger_id + local_id + payload) deduped for 5s.
   5. Calls executor → IoT platform.
-  6. Writes audit rows.
+  6. Refreshes the target snapshot from /devices/info.
+  7. Writes audit rows.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from banbu.adapters.iot_client import IoTError
 from banbu.audit.log import AuditLog
 from banbu.devices.definition import effective_actions
 from banbu.devices.resolver import DeviceResolver
+from banbu.state.snapshot_cache import SnapshotCache
 
 from .executor import Executor
 
@@ -49,12 +51,14 @@ class ControlPlane:
         self,
         executor: Executor,
         resolver: DeviceResolver,
+        cache: SnapshotCache,
         audit: AuditLog,
         *,
         idempotency_window_seconds: float = 5.0,
     ) -> None:
         self._executor = executor
         self._resolver = resolver
+        self._cache = cache
         self._audit = audit
         self._window = idempotency_window_seconds
         self._recent: dict[str, float] = {}
@@ -144,6 +148,7 @@ class ControlPlane:
             return ExecuteResult(ok=False, local_id=local_id, action=action, payload=payload, error=str(e))
 
         log.info("control: executed local_id=%d action=%s payload=%s", local_id, action, payload)
+        await self._refresh_snapshot(local_id, trigger_id=trigger_id, scene_id=scene_id)
         self._audit.write(
             "execute_result",
             {"local_id": local_id, "action": action, "payload": payload, "ok": True},
@@ -151,3 +156,44 @@ class ControlPlane:
             scene_id=scene_id,
         )
         return ExecuteResult(ok=True, local_id=local_id, action=action, payload=payload)
+
+    async def _refresh_snapshot(
+        self,
+        local_id: int,
+        *,
+        trigger_id: str | None,
+        scene_id: str | None,
+    ) -> None:
+        try:
+            info = await self._executor.get_info(local_id)
+            payload = info.get("payload")
+            if not isinstance(payload, dict):
+                raise ControlError(f"/devices/info local_id={local_id} returned no payload object")
+        except Exception as e:
+            log.warning("control: snapshot refresh failed for local_id=%d: %s", local_id, e)
+            self._audit.write(
+                "snapshot_refresh",
+                {"local_id": local_id, "ok": False, "error": str(e)},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            return
+
+        snap = self._cache.update(local_id, payload, source="control_refresh")
+        if snap is None:
+            log.warning("control: snapshot refresh ignored unmanaged local_id=%d", local_id)
+            self._audit.write(
+                "snapshot_refresh",
+                {"local_id": local_id, "ok": False, "error": "unmanaged local_id"},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            return
+
+        log.info("control: snapshot refreshed local_id=%d source=%s", local_id, snap.source)
+        self._audit.write(
+            "snapshot_refresh",
+            {"local_id": local_id, "ok": True, "payload": payload},
+            trigger_id=trigger_id,
+            scene_id=scene_id,
+        )
