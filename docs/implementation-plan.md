@@ -368,14 +368,11 @@ resp = await openai_client.chat.completions.create(
 - 如果用户后续改用 `contextpilot-llama-server` 启动（仅启动命令换前缀），ContextPilot 会通过 LD_PRELOAD 拦截 KV 失效事件，命中率更精确——这是优化项，不影响 v1 跑通
 - Agent loop 不感知这层差异，永远只用标准 OpenAI SDK
 
-### 4.5 工具调用兼容性的兜底
+### 4.5 工具调用方式
 
-不同模型对 OpenAI `tools` 字段的支持质量不一。v1 做两层防御：
+Agent loop 只走 OpenAI `tools` + `tool_choice="auto"` 的结构化函数调用路径。
 
-1. **首选**：用 `tools` + `tool_choice="auto"` 走结构化函数调用
-2. **降级**：如果模型连续 N 次返回非法 tool_call JSON，agent loop 自动切到 ReAct 风格的纯文本 prompt（`Action: execute_plan\nArgs: {...}`），用正则解析。降级状态打日志，便于换模型时观察
-
-env 里 `BANBU_LLM_TOOLCALL_MODE` 控制：`auto`（默认，先试结构化，失败降级）、`structured`（强制）、`react`（强制 ReAct）。
+如果模型没有产生 tool call，系统不会解析自然语言或 JSON 文本来猜测动作；该轮按模型最终消息结束。这样可以把模型能力问题暴露在日志和审计里，而不是通过兼容分支悄悄改变执行语义。
 
 ### 4.6 用户配置文件：设备清单与场景目录
 
@@ -517,7 +514,7 @@ v2 把 runtime 和 snapshot 搬 Redis 即可横向扩展，对上层接口零改
 ### 阶段 4：Turn + Context + Agent + 控制平面（约 3 天）
 
 - [ ] `turn/builder.py`、`context/selector.py`、`context/assembler.py`、`context/pilot.py`
-- [ ] `agent/loop.py`：OpenAI 兼容 tool use 循环 + ReAct 降级路径
+- [ ] `agent/loop.py`：OpenAI 兼容 structured tool use 循环
 - [ ] `control/plane.py` + `control/executor.py`：动作语义翻译 + 调 `iot_client.control`
 - [ ] 审计写 SQLite
 - [ ] **退出标准**：阶段 3 的 trigger 真的能让 LLM 输出 `execute_plan(turn_on)`，玄关灯实际亮起，cooldown 写入
@@ -584,7 +581,7 @@ LLM 调用的非确定性：v1 默认 `temperature=0`（env 可改），并对 p
 | 用户画像 / 长期记忆 | 暂缓 | context/selector 留扩展点，不实现 |
 | 复杂触发类型 | 暂缓 | runtime 里抽象 `SceneRuntime` 基类，只实现 sequential |
 | LLM 失控 | 受控 | 只暴露 2 个工具；execute_plan 必经 control plane |
-| 本地模型 tool calling 不稳 | 已设防 | `BANBU_LLM_TOOLCALL_MODE=auto` 自动从结构化降级 ReAct |
+| 本地模型 tool calling 不稳 | 暂缓 | 不做 ReAct/JSON 兜底；通过日志和审计暴露模型能力问题 |
 | 本地模型 / 端点变更 | 零代码改动 | 全走 `.env`，重启即可生效 |
 
 ---

@@ -98,10 +98,32 @@ def _make_handle_trigger(
                 "deduped": result.deduped,
             }
 
+        async def on_read(local_id: int, fields: list[str] | None) -> dict:
+            snap = cache.get(local_id)
+            if snap is None:
+                return {"ok": False, "local_id": local_id, "error": "snapshot not found"}
+
+            if fields is None:
+                payload = dict(snap.payload)
+                missing_fields: list[str] = []
+            else:
+                payload = {field: snap.payload[field] for field in fields if field in snap.payload}
+                missing_fields = [field for field in fields if field not in snap.payload]
+
+            return {
+                "ok": not missing_fields,
+                "local_id": local_id,
+                "payload": payload,
+                "missing_fields": missing_fields,
+                "updated_at": snap.updated_at,
+                "source": snap.source,
+            }
+
         try:
             agent_result = await agent.run(
                 messages,
                 on_execute=on_execute,
+                on_read=on_read,
                 trigger_id=trigger.trigger_id,
                 scene_id=trigger.scene_id,
             )

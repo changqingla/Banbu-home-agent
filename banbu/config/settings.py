@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
     llm_timeout_seconds: int = 60
-    llm_toolcall_mode: str = "auto"
 
     iot_base_url: str = "http://192.168.1.78:8000"
     iot_timeout_seconds: int = 10
