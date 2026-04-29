@@ -46,6 +46,15 @@ class ExecuteResult:
     deduped: bool = False
 
 
+@dataclass
+class _ConflictClaim:
+    local_id: int
+    payload: dict[str, Any]
+    scene_id: str | None
+    priority: int
+    expires_at: float
+
+
 class ControlPlane:
     def __init__(
         self,
@@ -55,6 +64,8 @@ class ControlPlane:
         audit: AuditLog,
         *,
         idempotency_window_seconds: float = 5.0,
+        conflict_window_seconds: float = 2.0,
+        scene_priorities: dict[str, int] | None = None,
     ) -> None:
         self._executor = executor
         self._resolver = resolver
@@ -62,6 +73,9 @@ class ControlPlane:
         self._audit = audit
         self._window = idempotency_window_seconds
         self._recent: dict[str, float] = {}
+        self._conflict_window = conflict_window_seconds
+        self._scene_priorities = dict(scene_priorities or {})
+        self._claims: dict[int, _ConflictClaim] = {}
 
     def translate(self, local_id: int, action: str, params: dict[str, Any] | None) -> dict[str, Any]:
         dev = self._resolver.by_local_id(local_id)
@@ -103,6 +117,79 @@ class ControlPlane:
         self._recent[key] = now
         return False
 
+    def _scene_priority(self, scene_id: str | None) -> int:
+        if scene_id is None:
+            return 0
+        return self._scene_priorities.get(scene_id, 0)
+
+    def _prune_conflict_claims(self, now: float) -> None:
+        for local_id, claim in list(self._claims.items()):
+            if now >= claim.expires_at:
+                self._claims.pop(local_id, None)
+
+    def _payload_conflicts(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
+        return any(key in right and right[key] != value for key, value in left.items())
+
+    def _claim_conflict(
+        self,
+        *,
+        local_id: int,
+        payload: dict[str, Any],
+        scene_id: str | None,
+        trigger_id: str | None,
+    ) -> str | None:
+        now = time.time()
+        self._prune_conflict_claims(now)
+
+        priority = self._scene_priority(scene_id)
+        existing = self._claims.get(local_id)
+        if existing is not None and self._payload_conflicts(existing.payload, payload):
+            if priority <= existing.priority:
+                error = (
+                    f"conflicting action for local_id={local_id}: scene {scene_id!r} "
+                    f"priority={priority} conflicts with scene {existing.scene_id!r} "
+                    f"priority={existing.priority}"
+                )
+                self._audit.write(
+                    "conflict_reject",
+                    {
+                        "local_id": local_id,
+                        "scene_id": scene_id,
+                        "priority": priority,
+                        "payload": payload,
+                        "existing_scene_id": existing.scene_id,
+                        "existing_priority": existing.priority,
+                        "existing_payload": existing.payload,
+                    },
+                    trigger_id=trigger_id,
+                    scene_id=scene_id,
+                )
+                return error
+
+            self._audit.write(
+                "conflict_override",
+                {
+                    "local_id": local_id,
+                    "scene_id": scene_id,
+                    "priority": priority,
+                    "payload": payload,
+                    "overridden_scene_id": existing.scene_id,
+                    "overridden_priority": existing.priority,
+                    "overridden_payload": existing.payload,
+                },
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+
+        self._claims[local_id] = _ConflictClaim(
+            local_id=local_id,
+            payload=dict(payload),
+            scene_id=scene_id,
+            priority=priority,
+            expires_at=now + self._conflict_window,
+        )
+        return None
+
     async def execute(
         self,
         local_id: int,
@@ -129,6 +216,28 @@ class ControlPlane:
             log.info("control: deduped local_id=%d action=%s payload=%s", local_id, action, payload)
             return ExecuteResult(ok=True, local_id=local_id, action=action, payload=payload, deduped=True)
 
+        conflict_error = self._claim_conflict(
+            local_id=local_id,
+            payload=payload,
+            scene_id=scene_id,
+            trigger_id=trigger_id,
+        )
+        if conflict_error is not None:
+            log.warning("control: conflict rejected local_id=%d action=%s: %s", local_id, action, conflict_error)
+            self._audit.write(
+                "execute_result",
+                {
+                    "local_id": local_id,
+                    "action": action,
+                    "payload": payload,
+                    "ok": False,
+                    "error": conflict_error,
+                },
+                trigger_id=trigger_id,
+                scene_id=scene_id,
+            )
+            return ExecuteResult(ok=False, local_id=local_id, action=action, payload=payload, error=conflict_error)
+
         self._audit.write(
             "execute",
             {"local_id": local_id, "action": action, "payload": payload},
@@ -139,6 +248,9 @@ class ControlPlane:
             await self._executor.run(local_id, payload)
         except IoTError as e:
             log.warning("control: IoT error on local_id=%d: %s", local_id, e)
+            claim = self._claims.get(local_id)
+            if claim is not None and claim.scene_id == scene_id and claim.payload == payload:
+                self._claims.pop(local_id, None)
             self._audit.write(
                 "execute_result",
                 {"local_id": local_id, "action": action, "ok": False, "error": str(e)},

@@ -35,6 +35,7 @@ class Dispatcher:
     ) -> None:
         self._reverse_index = reverse_index
         self._runtimes: dict[str, SceneRuntime] = {}
+        self._priorities: dict[str, int] = {scene.scene_id: scene.policy.priority for scene in scenes}
         for scene in scenes:
             if scene.kind == "sequential":
                 self._runtimes[scene.scene_id] = SequentialSceneRuntime(
@@ -92,9 +93,11 @@ class Dispatcher:
             entries = self._reverse_index.lookup(event.friendly_name, field_key)
             if not entries:
                 continue
-            for scene_id, role in entries:
-                if role != "trigger":
-                    continue
+            trigger_scene_ids = sorted(
+                (scene_id for scene_id, role in entries if role == "trigger"),
+                key=lambda scene_id: (-self._priorities.get(scene_id, 0), scene_id),
+            )
+            for scene_id in trigger_scene_ids:
                 runtime = self._runtimes.get(scene_id)
                 if runtime is None:
                     continue
