@@ -16,9 +16,23 @@ context_devices:
   trigger:
     - "0xa4c138c1dfcc3e7e"
     - "0xa4c1384addf12b0c"
-  context_only: []
+  context_only:
+    - "0xa4c138d2ceca243c"        # presence radar with illuminance
+    - "0xa4c1388ce42078b7"        # target color temperature light
 
-intent: Turn on light when entry detected
+preconditions:
+  - device: "0xa4c138d2ceca243c"
+    field: payload.illuminance
+    op: lt
+    value: 30
+    on_missing: skip
+  - device: "0xa4c1388ce42078b7"
+    field: payload.state
+    op: neq
+    value: "ON"
+    on_missing: skip
+
+intent: Turn on the entry light when entry is detected, the environment is dark, and the light is off
 
 actions_hint:
   - tool: execute_plan
