@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from banbu.devices.definition import ResolvedDevice
 from banbu.devices.resolver import DeviceResolver
 from banbu.scenes.definition import Scene
+from banbu.state.feedback import FeedbackEntry, FeedbackStore
 from banbu.state.snapshot_cache import Snapshot, SnapshotCache
 from banbu.turn.model import Turn
 
@@ -23,6 +24,7 @@ class SelectedContext:
     scene: Scene
     devices: list[ResolvedDevice]
     snapshots: dict[str, Snapshot]
+    feedback: list[FeedbackEntry]
 
 
 def select(
@@ -30,6 +32,7 @@ def select(
     scene: Scene,
     resolver: DeviceResolver,
     cache: SnapshotCache,
+    feedback_store: FeedbackStore | None = None,
 ) -> SelectedContext:
     devices: list[ResolvedDevice] = []
     snapshots: dict[str, Snapshot] = {}
@@ -47,4 +50,14 @@ def select(
         if snap is not None:
             snapshots[name] = snap
 
-    return SelectedContext(turn=turn, scene=scene, devices=devices, snapshots=snapshots)
+    feedback = []
+    if feedback_store is not None and turn.scene_id is not None:
+        feedback = feedback_store.recent(turn.home_id, turn.scene_id)
+
+    return SelectedContext(
+        turn=turn,
+        scene=scene,
+        devices=devices,
+        snapshots=snapshots,
+        feedback=feedback,
+    )
