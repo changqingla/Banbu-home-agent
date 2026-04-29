@@ -25,17 +25,20 @@ class AgentResult:
     error: str | None = None
 
 
-def _extract_actions(text: str) -> list[dict]:
-    """Extract JSON array of actions from LLM output."""
-    # Try ```json ... ``` block
+def _extract_actions(text: str) -> list[dict[str, Any]]:
+    """Extract the lightweight JSON action array from LLM output."""
     m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
     if m:
-        return json.loads(m.group(1))
-    # Fall back: first [...] in text
-    m = re.search(r"(\[.*?\])", text, re.DOTALL)
-    if m:
-        return json.loads(m.group(1))
-    return []
+        data = json.loads(m.group(1))
+    else:
+        m = re.search(r"(\[.*?\])", text, re.DOTALL)
+        if not m:
+            return []
+        data = json.loads(m.group(1))
+
+    if not isinstance(data, list):
+        raise ValueError(f"actions must be a JSON array, got {type(data).__name__}")
+    return [item for item in data if isinstance(item, dict)]
 
 
 class AgentLoop:
@@ -44,8 +47,8 @@ class AgentLoop:
         settings: Settings,
         audit: AuditLog,
         *,
-        client: AsyncOpenAI | None = None,
-        max_iterations: int = 5,  # kept for API compatibility, unused
+        client: Any | None = None,
+        max_iterations: int = 5,  # kept for API compatibility; JSON protocol is one-shot.
     ) -> None:
         self._settings = settings
         self._audit = audit
@@ -64,13 +67,13 @@ class AgentLoop:
         messages: list[dict[str, Any]],
         *,
         on_execute: ExecuteHandler,
-        on_read: Any = None,  # kept for API compatibility, unused
+        on_read: Any = None,  # intentionally unused by the lightweight JSON protocol.
         trigger_id: str | None = None,
         scene_id: str | None = None,
     ) -> AgentResult:
         self._audit.write(
             "agent_request",
-            {"messages": messages, "model": self._settings.llm_model},
+            {"messages": messages, "model": self._settings.llm_model, "protocol": "json_action_array"},
             trigger_id=trigger_id,
             scene_id=scene_id,
         )
@@ -112,8 +115,10 @@ class AgentLoop:
                 log.warning("agent: skipping malformed action: %s", act)
                 continue
             self._audit.write(
-                "tool_call", {"name": "execute_plan", "args": act},
-                trigger_id=trigger_id, scene_id=scene_id,
+                "tool_call",
+                {"name": "execute_plan", "args": act, "protocol": "json_action_array"},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
             )
             try:
                 result = await on_execute(int(local_id), str(action), act.get("params"))
@@ -123,8 +128,10 @@ class AgentLoop:
                 log.exception("agent: execute failed for action %s", act)
                 result = {"ok": False, "error": str(e)}
             self._audit.write(
-                "tool_result", {"name": "execute_plan", "result": result},
-                trigger_id=trigger_id, scene_id=scene_id,
+                "tool_result",
+                {"name": "execute_plan", "result": result},
+                trigger_id=trigger_id,
+                scene_id=scene_id,
             )
 
         log.info("agent: done, executed=%d", len(executed))

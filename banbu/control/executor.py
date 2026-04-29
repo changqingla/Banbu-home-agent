@@ -19,3 +19,6 @@ class Executor:
 
     async def run(self, local_id: int, payload: dict[str, Any]) -> Any:
         return await self._client.control(local_id, payload)
+
+    async def get_info(self, local_id: int) -> dict[str, Any]:
+        return await self._client.get_info(local_id)

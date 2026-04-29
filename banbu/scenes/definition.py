@@ -72,6 +72,22 @@ class Trigger(BaseModel):
     steps: list[TriggerStep] = Field(min_length=1)
 
 
+class WindowedAllTrigger(BaseModel):
+    conditions: list[TriggerStep] = Field(min_length=1)
+    window_seconds: float = Field(gt=0)
+
+
+class DurationCondition(BaseModel):
+    device: str
+    field: str
+    value: Any
+
+
+class DurationTrigger(BaseModel):
+    condition: DurationCondition
+    duration_seconds: float = Field(gt=0)
+
+
 class VisionTrigger(BaseModel):
     device: str
     field: str = "payload.scene_id"
@@ -118,9 +134,10 @@ class VisionPolicy(BaseModel):
 class Scene(BaseModel):
     scene_id: str
     name: str
-    kind: Literal["sequential", "vision_match"] = "sequential"
-    trigger: Trigger | VisionTrigger
+    kind: Literal["sequential", "edge_triggered", "windowed_all", "duration_triggered", "vision_match"] = "sequential"
+    trigger: Trigger | WindowedAllTrigger | DurationTrigger | VisionTrigger
     vision_policy: VisionPolicy = Field(default_factory=VisionPolicy)
+    vision_criteria: list[str] = Field(default_factory=list)
     context_devices: ContextDevices = Field(default_factory=ContextDevices)
     preconditions: list[Precondition] = Field(default_factory=list)
     intent: str = ""
@@ -138,6 +155,15 @@ class Scene(BaseModel):
     def _trigger_matches_kind(self) -> "Scene":
         if self.kind == "sequential" and not isinstance(self.trigger, Trigger):
             raise ValueError("sequential scenes require trigger.steps")
+        if self.kind == "edge_triggered":
+            if not isinstance(self.trigger, Trigger):
+                raise ValueError("edge_triggered scenes require trigger.steps")
+            if len(self.trigger.steps) != 1:
+                raise ValueError("edge_triggered scenes require exactly one trigger step")
+        if self.kind == "windowed_all" and not isinstance(self.trigger, WindowedAllTrigger):
+            raise ValueError("windowed_all scenes require trigger.conditions and trigger.window_seconds")
+        if self.kind == "duration_triggered" and not isinstance(self.trigger, DurationTrigger):
+            raise ValueError("duration_triggered scenes require trigger.condition and trigger.duration_seconds")
         if self.kind == "vision_match" and not isinstance(self.trigger, VisionTrigger):
             raise ValueError("vision_match scenes require trigger.device/field/value")
         return self
@@ -145,6 +171,10 @@ class Scene(BaseModel):
     def trigger_devices(self) -> set[str]:
         if isinstance(self.trigger, VisionTrigger):
             names: set[str] = {self.trigger.device}
+        elif isinstance(self.trigger, WindowedAllTrigger):
+            names = {condition.device for condition in self.trigger.conditions}
+        elif isinstance(self.trigger, DurationTrigger):
+            names = {self.trigger.condition.device}
         else:
             names = {step.device for step in self.trigger.steps}
         names.update(self.context_devices.trigger)

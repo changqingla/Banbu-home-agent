@@ -20,6 +20,7 @@ from .event import DeviceEvent, FieldChange
 log = logging.getLogger(__name__)
 
 EventHandler = Callable[[DeviceEvent], None]
+TickHandler = Callable[[], None]
 
 
 def _diff(old: dict, new: dict) -> list[FieldChange]:
@@ -43,12 +44,14 @@ class FallbackPoller:
         *,
         interval_seconds: int,
         on_event: EventHandler | None = None,
+        on_tick: TickHandler | None = None,
     ) -> None:
         self._client = client
         self._resolver = resolver
         self._cache = cache
         self._interval = interval_seconds
         self._on_event = on_event
+        self._on_tick = on_tick
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -116,3 +119,8 @@ class FallbackPoller:
                     )
                 except Exception:
                     log.exception("on_event handler raised (continuing)")
+        if self._on_tick is not None:
+            try:
+                self._on_tick()
+            except Exception:
+                log.exception("on_tick handler raised (continuing)")

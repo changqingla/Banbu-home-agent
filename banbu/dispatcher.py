@@ -13,8 +13,11 @@ from banbu.ingest.event import DeviceEvent
 from banbu.scenes.definition import Scene
 from banbu.scenes.reverse_index import ReverseIndex
 from banbu.scenes.runtime.base import OnHit, SceneRuntime
+from banbu.scenes.runtime.duration import DurationSceneRuntime
+from banbu.scenes.runtime.edge import EdgeSceneRuntime
 from banbu.scenes.runtime.sequential import SequentialSceneRuntime
 from banbu.scenes.runtime.vision_match import VisionMatchSceneRuntime
+from banbu.scenes.runtime.windowed_all import WindowedAllSceneRuntime
 from banbu.state.snapshot_cache import SnapshotCache
 
 log = logging.getLogger(__name__)
@@ -32,9 +35,22 @@ class Dispatcher:
     ) -> None:
         self._reverse_index = reverse_index
         self._runtimes: dict[str, SceneRuntime] = {}
+        self._priorities: dict[str, int] = {scene.scene_id: scene.policy.priority for scene in scenes}
         for scene in scenes:
             if scene.kind == "sequential":
                 self._runtimes[scene.scene_id] = SequentialSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "edge_triggered":
+                self._runtimes[scene.scene_id] = EdgeSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "windowed_all":
+                self._runtimes[scene.scene_id] = WindowedAllSceneRuntime(
+                    scene, cache, home_id=home_id, on_hit=on_hit
+                )
+            elif scene.kind == "duration_triggered":
+                self._runtimes[scene.scene_id] = DurationSceneRuntime(
                     scene, cache, home_id=home_id, on_hit=on_hit
                 )
             elif scene.kind == "vision_match":
@@ -77,10 +93,18 @@ class Dispatcher:
             entries = self._reverse_index.lookup(event.friendly_name, field_key)
             if not entries:
                 continue
-            for scene_id, role in entries:
-                if role != "trigger":
-                    continue
+            trigger_scene_ids = sorted(
+                (scene_id for scene_id, role in entries if role == "trigger"),
+                key=lambda scene_id: (-self._priorities.get(scene_id, 0), scene_id),
+            )
+            for scene_id in trigger_scene_ids:
                 runtime = self._runtimes.get(scene_id)
                 if runtime is None:
                     continue
                 runtime.on_event(event, change)
+
+    def on_tick(self) -> None:
+        for runtime in self._runtimes.values():
+            on_tick = getattr(runtime, "on_tick", None)
+            if on_tick is not None:
+                on_tick()

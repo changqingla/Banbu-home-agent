@@ -25,31 +25,16 @@ import time
 from typing import Any
 
 from banbu.ingest.event import DeviceEvent, FieldChange
-from banbu.scenes.definition import Scene, Trigger, TriggerStep, WILDCARD
+from banbu.scenes.definition import Scene, Trigger
 from banbu.state.snapshot_cache import MISSING, SnapshotCache
 from banbu.turn.model import ProactiveTrigger
 
 from .base import OnHit, SceneRuntime
 from .conditions import PreconditionFailed, check_precondition
 from .lifecycle import SceneState
+from .transitions import matches_step, summarize_change
 
 log = logging.getLogger(__name__)
-
-
-def _match_value(spec: Any, actual: Any) -> bool:
-    if spec is WILDCARD:
-        return True
-    return spec == actual
-
-
-def _matches_step(step: TriggerStep, event: DeviceEvent, change: FieldChange) -> bool:
-    if event.friendly_name != step.device:
-        return False
-    norm_field = step.field if step.field.startswith("payload.") else f"payload.{step.field}"
-    leaf = norm_field[len("payload."):]
-    if change.field != leaf:
-        return False
-    return _match_value(step.old_value, change.old) and _match_value(step.new_value, change.new)
 
 
 class SequentialSceneRuntime(SceneRuntime):
@@ -103,7 +88,7 @@ class SequentialSceneRuntime(SceneRuntime):
                 st.reset_cursor()
 
         target = steps[st.cursor]
-        if _matches_step(target, event, change):
+        if matches_step(target, event, change):
             self._note_event(event, change)
             st.last_step_at = now
             st.cursor += 1
@@ -116,7 +101,7 @@ class SequentialSceneRuntime(SceneRuntime):
                 self._evaluate_and_emit()
             return
 
-        if st.cursor > 0 and _matches_step(steps[0], event, change):
+        if st.cursor > 0 and matches_step(steps[0], event, change):
             log.info(
                 "scene %s: restart from step 0 on %s.%s",
                 scene.scene_id, event.friendly_name, change.field,
@@ -127,9 +112,7 @@ class SequentialSceneRuntime(SceneRuntime):
             st.last_step_at = now
 
     def _note_event(self, event: DeviceEvent, change: FieldChange) -> None:
-        self._recent_events.append(
-            f"{event.friendly_name}.{change.field}: {change.old!r}->{change.new!r}"
-        )
+        self._recent_events.append(summarize_change(event, change))
         if len(self._recent_events) > 10:
             self._recent_events = self._recent_events[-10:]
 

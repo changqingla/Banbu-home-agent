@@ -6,10 +6,12 @@ from .definition import ResolvedDevice
 class DeviceResolver:
     """Bidirectional lookup between friendly_name / local_id / ieee_address."""
 
-    def __init__(self, devices: list[ResolvedDevice]) -> None:
+    def __init__(self, devices: list[ResolvedDevice], *, skipped_missing_devices: list[str] | None = None) -> None:
         self._by_name: dict[str, ResolvedDevice] = {d.spec.friendly_name: d for d in devices}
         self._by_local_id: dict[int, ResolvedDevice] = {d.local_id: d for d in devices}
         self._by_ieee: dict[str, ResolvedDevice] = {d.ieee_address: d for d in devices}
+        self.skipped_missing_devices = list(skipped_missing_devices or [])
+
     def all(self) -> list[ResolvedDevice]:
         return list(self._by_name.values())
 

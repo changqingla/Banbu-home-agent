@@ -14,7 +14,6 @@ Run:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import socket
 from contextlib import asynccontextmanager
@@ -22,7 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from banbu.adapters.iot_client import IoTClient
-from banbu.agent.loop import AgentLoop
+from banbu.agent.loop import AgentLoop, AgentResult
 from banbu.audit.log import AuditLog
 from banbu.config.settings import Settings, get_settings
 from banbu.context.assembler import assemble_blocks
@@ -35,15 +34,28 @@ from banbu.devices.resolver import DeviceResolver
 from banbu.dispatcher import Dispatcher
 from banbu.ingest.poller import FallbackPoller
 from banbu.ingest.webhook import make_router
+from banbu.policy import load_policy
 from banbu.scenes.definition import Scene
 from banbu.scenes.loader import load_scenes
 from banbu.scenes.reverse_index import build_reverse_index
+from banbu.state.feedback import FeedbackEntry, FeedbackOutcome, FeedbackStore
 from banbu.state.snapshot_cache import SnapshotCache
 from banbu.turn.builder import from_trigger
 from banbu.turn.model import ProactiveTrigger
+from banbu.turn.scheduler import TurnScheduler
 from banbu.vision.service import VisionService
 
 log = logging.getLogger(__name__)
+
+
+def _feedback_outcome(agent_result: AgentResult, tool_results: list[dict]) -> tuple[FeedbackOutcome, str]:
+    if agent_result.error:
+        return "agent_error", agent_result.error
+    if any(not r.get("ok") for r in tool_results):
+        return "failure", "one or more execute_plan calls failed"
+    if agent_result.executed:
+        return "success", f"executed {len(agent_result.executed)} action(s)"
+    return "skipped", "agent returned no executable actions"
 
 
 def _lan_ip(target: str = "192.168.1.78") -> str:
@@ -67,11 +79,19 @@ def _make_handle_trigger(
     control: ControlPlane,
     dispatcher: Dispatcher,
     audit: AuditLog,
+    feedback_store: FeedbackStore,
 ):
     async def handle(trigger: ProactiveTrigger) -> None:
         scene = scenes_by_id.get(trigger.scene_id)
         if scene is None:
             log.warning("handle_trigger: unknown scene_id %s", trigger.scene_id)
+            feedback_store.add(FeedbackEntry(
+                home_id=trigger.home_id,
+                scene_id=trigger.scene_id,
+                trigger_id=trigger.trigger_id,
+                outcome="failure",
+                summary="unknown scene_id",
+            ))
             dispatcher.mark_executed(trigger.scene_id, success=False)
             return
 
@@ -79,17 +99,20 @@ def _make_handle_trigger(
                     trigger_id=trigger.trigger_id, scene_id=trigger.scene_id)
 
         turn = from_trigger(trigger)
-        ctx = select_context(turn, scene, resolver, cache)
+        ctx = select_context(turn, scene, resolver, cache, feedback_store=feedback_store)
         blocks = assemble_blocks(ctx)
         messages = pilot_optimize(blocks, conversation_id=turn.conversation_id)
+        tool_results: list[dict] = []
 
         async def on_execute(local_id: int, action: str, params: dict | None) -> dict:
             result = await control.execute(
                 local_id, action, params,
                 trigger_id=trigger.trigger_id,
                 scene_id=trigger.scene_id,
+                actor="proactive",
+                home_id=trigger.home_id,
             )
-            return {
+            payload = {
                 "ok": result.ok,
                 "local_id": result.local_id,
                 "action": result.action,
@@ -97,6 +120,8 @@ def _make_handle_trigger(
                 "error": result.error,
                 "deduped": result.deduped,
             }
+            tool_results.append(payload)
+            return payload
 
         try:
             agent_result = await agent.run(
@@ -107,6 +132,13 @@ def _make_handle_trigger(
             )
         except Exception:
             log.exception("agent run crashed for trigger %s", trigger.trigger_id)
+            feedback_store.add(FeedbackEntry(
+                home_id=trigger.home_id,
+                scene_id=trigger.scene_id,
+                trigger_id=trigger.trigger_id,
+                outcome="agent_error",
+                summary="agent run crashed",
+            ))
             dispatcher.mark_executed(trigger.scene_id, success=False)
             return
 
@@ -117,6 +149,22 @@ def _make_handle_trigger(
         )
 
         success = bool(agent_result.executed) and not agent_result.error
+        outcome, summary = _feedback_outcome(agent_result, tool_results)
+
+        feedback_store.add(FeedbackEntry(
+            home_id=trigger.home_id,
+            scene_id=trigger.scene_id,
+            trigger_id=trigger.trigger_id,
+            outcome=outcome,
+            summary=summary,
+            details={
+                "iterations": agent_result.iterations,
+                "executed": agent_result.executed,
+                "tool_results": tool_results,
+                "final_message": agent_result.final_message,
+                "error": agent_result.error,
+            },
+        ))
         dispatcher.mark_executed(
             trigger.scene_id,
             success=success,
@@ -135,7 +183,7 @@ async def lifespan(app: FastAPI):
     )
 
     client = IoTClient(settings)
-    resolver = await build_registry(client, settings.devices_file)
+    resolver = await build_registry(client, settings.devices_file, strict=settings.registry_strict)
     cache = SnapshotCache(resolver)
     await cache.bootstrap(client)
 
@@ -146,8 +194,18 @@ async def lifespan(app: FastAPI):
 
     audit = AuditLog(settings.db_path)
     executor = Executor(client)
-    control = ControlPlane(executor, resolver, audit)
+    policy = load_policy(settings.policy_file)
+    control = ControlPlane(
+        executor,
+        resolver,
+        cache,
+        audit,
+        policy,
+        scene_priorities={scene.scene_id: scene.policy.priority for scene in scenes},
+    )
     agent = AgentLoop(settings, audit)
+    feedback_store = FeedbackStore()
+    turn_scheduler = TurnScheduler()
 
     pending_handler = {"fn": None}
 
@@ -160,7 +218,11 @@ async def lifespan(app: FastAPI):
             "ProactiveTrigger emitted scene=%s id=%s home=%s",
             trigger.scene_id, trigger.trigger_id, trigger.home_id,
         )
-        asyncio.create_task(handler(trigger))
+        turn_scheduler.submit_proactive(
+            home_id=trigger.home_id,
+            scene_id=trigger.scene_id,
+            job_factory=lambda trigger=trigger: handler(trigger),
+        )
 
     dispatcher = Dispatcher(scenes, reverse_index, cache, home_id=settings.home_id, on_hit=_on_hit)
 
@@ -173,6 +235,7 @@ async def lifespan(app: FastAPI):
         control=control,
         dispatcher=dispatcher,
         audit=audit,
+        feedback_store=feedback_store,
     )
 
     app.include_router(make_router(
@@ -186,9 +249,10 @@ async def lifespan(app: FastAPI):
         client, resolver, cache,
         interval_seconds=settings.fallback_poll_seconds,
         on_event=dispatcher.on_event,
+        on_tick=dispatcher.on_tick,
     )
     poller.start()
-    vision_service = VisionService(settings)
+    vision_service = VisionService(settings, scenes)
     vision_service.start()
 
     public_url = f"http://{_lan_ip()}:{settings.port}{settings.webhook_path}"
@@ -207,10 +271,14 @@ async def lifespan(app: FastAPI):
     app.state.audit = audit
     app.state.control = control
     app.state.agent = agent
+    app.state.feedback_store = feedback_store
+    app.state.turn_scheduler = turn_scheduler
+    app.state.turn_scheduler = turn_scheduler
 
     try:
         yield
     finally:
+        await turn_scheduler.aclose()
         await vision_service.stop()
         await poller.stop()
         await client.aclose()

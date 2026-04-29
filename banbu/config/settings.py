@@ -43,11 +43,13 @@ class Settings(BaseSettings):
     cp_use_gpu: bool = False
 
     home_id: str = "home_default"
+    registry_strict: bool = False
     fallback_poll_seconds: int = 30
     log_level: str = "INFO"
     db_path: Path = Path("./data/banbu.sqlite")
     devices_file: Path = Path("./banbu/config/devices.yaml")
     scenes_dir: Path = Path("./banbu/config/scenes")
+    policy_file: Path = Path("./banbu/config/policy.yaml")
 
 
 _settings: Settings | None = None

@@ -10,17 +10,30 @@ import json
 
 from banbu.agent.prompts import SYSTEM_POLICY
 from banbu.devices.definition import effective_actions
-from banbu.scenes.definition import Trigger, VisionTrigger
+from banbu.scenes.definition import DurationTrigger, Trigger, VisionTrigger, WindowedAllTrigger
 
 from .selector import SelectedContext
 
 
+TOOL_SCHEMA_BLOCK = """\
+[tool schema]
+execute_plan action array:
+  [{"local_id": <int>, "action": "<supported_action>", "params": <object optional>}]
+Skip by returning [].
+Use only actions advertised in actions_hint or in the matching device actions list.
+The backend validates device capability, idempotency, and execution.
+"""
+
+
 def _device_block(dev, snap) -> str:
     actions = sorted(effective_actions(dev.spec))
+    aliases = json.dumps(dev.spec.aliases, ensure_ascii=False)
     payload = json.dumps(snap.payload if snap else {}, ensure_ascii=False, sort_keys=True)
     return (
         f"[device:{dev.spec.friendly_name}] local_id={dev.local_id} "
+        f"room={dev.spec.room or '(unset)'} "
         f"role={dev.spec.role} "
+        f"aliases={aliases} "
         f"actions={actions or 'none'} "
         f"snapshot={payload}"
     )
@@ -33,6 +46,15 @@ def _scene_block(scene, name_to_local_id: dict) -> str:
             + (f" within={s.within_seconds}s" if s.within_seconds else "")
             for i, s in enumerate(scene.trigger.steps)
         )
+    elif isinstance(scene.trigger, WindowedAllTrigger):
+        conditions = "; ".join(
+            f"condition{i+1}: {c.device}.{c.field} {c.transition}"
+            for i, c in enumerate(scene.trigger.conditions)
+        )
+        steps = f"windowed_all window={scene.trigger.window_seconds}s; {conditions}"
+    elif isinstance(scene.trigger, DurationTrigger):
+        c = scene.trigger.condition
+        steps = f"duration: {c.device}.{c.field} == {c.value!r} for {scene.trigger.duration_seconds}s"
     else:
         assert isinstance(scene.trigger, VisionTrigger)
         steps = (
@@ -75,13 +97,25 @@ def _trigger_facts_block(ctx: SelectedContext) -> str:
     )
 
 
+def _feedback_block(ctx: SelectedContext) -> str:
+    if not ctx.feedback:
+        return "[feedback]\n  (none)"
+    rows = [
+        json.dumps(entry.to_dict(), ensure_ascii=False, sort_keys=True)
+        for entry in ctx.feedback
+    ]
+    return "[feedback]\n  " + "\n  ".join(rows)
+
+
 def assemble_blocks(ctx: SelectedContext) -> list[str]:
     blocks: list[str] = []
 
     name_to_local_id = {dev.spec.friendly_name: dev.local_id for dev in ctx.devices}
     blocks.append(f"[system policy]\n{SYSTEM_POLICY}")
+    blocks.append(TOOL_SCHEMA_BLOCK)
     blocks.append(_scene_block(ctx.scene, name_to_local_id))
     blocks.append(_trigger_facts_block(ctx))
+    blocks.append(_feedback_block(ctx))
 
     for dev in ctx.devices:
         snap = ctx.snapshots.get(dev.spec.friendly_name)
