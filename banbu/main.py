@@ -14,7 +14,6 @@ Run:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import socket
 from contextlib import asynccontextmanager
@@ -42,6 +41,7 @@ from banbu.state.feedback import FeedbackEntry, FeedbackOutcome, FeedbackStore
 from banbu.state.snapshot_cache import SnapshotCache
 from banbu.turn.builder import from_trigger
 from banbu.turn.model import ProactiveTrigger
+from banbu.turn.scheduler import TurnScheduler
 from banbu.vision.service import VisionService
 
 log = logging.getLogger(__name__)
@@ -194,6 +194,7 @@ async def lifespan(app: FastAPI):
     control = ControlPlane(executor, resolver, cache, audit)
     agent = AgentLoop(settings, audit)
     feedback_store = FeedbackStore()
+    turn_scheduler = TurnScheduler()
 
     pending_handler = {"fn": None}
 
@@ -206,7 +207,11 @@ async def lifespan(app: FastAPI):
             "ProactiveTrigger emitted scene=%s id=%s home=%s",
             trigger.scene_id, trigger.trigger_id, trigger.home_id,
         )
-        asyncio.create_task(handler(trigger))
+        turn_scheduler.submit_proactive(
+            home_id=trigger.home_id,
+            scene_id=trigger.scene_id,
+            job_factory=lambda trigger=trigger: handler(trigger),
+        )
 
     dispatcher = Dispatcher(scenes, reverse_index, cache, home_id=settings.home_id, on_hit=_on_hit)
 
@@ -256,10 +261,13 @@ async def lifespan(app: FastAPI):
     app.state.control = control
     app.state.agent = agent
     app.state.feedback_store = feedback_store
+    app.state.turn_scheduler = turn_scheduler
+    app.state.turn_scheduler = turn_scheduler
 
     try:
         yield
     finally:
+        await turn_scheduler.aclose()
         await vision_service.stop()
         await poller.stop()
         await client.aclose()
