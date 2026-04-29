@@ -159,6 +159,9 @@ class ReactiveRunner:
             None,
             trigger_id=turn.turn_id,
             scene_id=scene_match.scene.scene_id if scene_match is not None else None,
+            actor="reactive",
+            home_id=turn.home_id,
+            user_id=turn.user_id,
         )
         return ReactiveRunResult(
             ok=execution.ok,

@@ -18,6 +18,7 @@ from banbu.config.settings import get_settings
 from banbu.control.executor import Executor
 from banbu.control.plane import ControlPlane
 from banbu.devices.registry import RegistryError, build_registry
+from banbu.policy import PolicyLoadError, load_policy
 from banbu.reactive.runner import ReactiveRunner, result_payload
 from banbu.scenes.loader import SceneLoadError, load_scenes
 from banbu.turn.builder import from_reactive
@@ -46,8 +47,14 @@ async def _run_utterance(utterance: str, *, user_id: str) -> int:
             print(f"[FAIL] {e}", file=sys.stderr)
             return 1
 
+        try:
+            policy = load_policy(settings.policy_file)
+        except PolicyLoadError as e:
+            print(f"[FAIL] {e}", file=sys.stderr)
+            return 1
+
         audit = AuditLog(settings.db_path)
-        control = ControlPlane(Executor(client), resolver, audit)
+        control = ControlPlane(Executor(client), resolver, audit, policy)
         runner = ReactiveRunner(resolver=resolver, control=control, audit=audit, scenes=scenes)
         turn = from_reactive(
             utterance,

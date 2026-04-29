@@ -1,0 +1,26 @@
+reactive_users:
+  cli_user:
+    home_id: home_default
+    allowed:
+      - device: "0xa4c138ffebf995aa"   # TS011F smart plug used as entry light
+        actions: [turn_on, turn_off]
+      - device: "0xa4c13844c02ef85c"   # TS011F smart plug
+        actions: [turn_on, turn_off]
+      - device: "0xa4c1388ce42078b7"   # TS0502B color temperature light
+        actions:
+          - turn_on
+          - turn_off
+          - brightness_high
+          - brightness_mid
+          - brightness_low
+          - color_temp_cool
+          - color_temp_neutral
+          - color_temp_warm
+
+safety:
+  high_risk_roles: [siren]
+  high_risk_actions: [alarm_burglar, alarm_fire]
+  proactive_allowed_scenes:
+    - safety_smoke_gas_windowed_v1
+    - safety_smoke_then_gas_v1
+    - safety_gas_then_smoke_v1

@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     db_path: Path = Path("./data/banbu.sqlite")
     devices_file: Path = Path("./banbu/config/devices.yaml")
     scenes_dir: Path = Path("./banbu/config/scenes")
+    policy_file: Path = Path("./banbu/config/policy.yaml")
 
 
 _settings: Settings | None = None
