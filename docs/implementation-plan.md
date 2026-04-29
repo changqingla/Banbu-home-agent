@@ -100,8 +100,8 @@ banbu/
 │   ├── assembler.py         # 组装上下文块（场景定义/触发事实/设备快照/反馈）
 │   └── pilot.py             # 调 contextpilot 的薄封装，设置 conversation_id
 ├── agent/
-│   ├── loop.py              # OpenAI 兼容 tool-use 循环（指向本地 llama-server）
-│   ├── tools.py             # 工具定义（read_device_state / execute_plan）
+│   ├── loop.py              # 轻量 JSON action-array 协议（指向本地 llama-server）
+│   ├── tools.py             # 结构化工具 schema 参考（当前运行时不走 OpenAI tools）
 │   └── prompts.py           # system prompt 模板
 ├── control/
 │   ├── plane.py             # 硬边界：能力检查、幂等、动作翻译
@@ -298,26 +298,23 @@ policy:
 
 幂等去重（同 trigger_id 重复请求）由 `control/plane.py` 用 5 秒短缓存兜底，与 inflight/cooldown 是两层独立机制。
 
-### 4.3 Agent 工具集（v1 只给两把）
+### 4.3 Agent 动作协议
 
-```python
-tools = [
-    {
-        "name": "read_device_state",
-        "description": "读取某设备当前 payload",
-        "input_schema": {"local_id": int, "fields": list[str] | None},
-    },
-    {
-        "name": "execute_plan",
-        "description": "下发一个动作，需要先经过控制平面校验",
-        "input_schema": {
-            "local_id": int,
-            "action": str,        # "turn_on" / "turn_off" 等统一语义
-            "params": dict | None,
-        },
-    },
+v1 主动链路刻意不使用 OpenAI structured tool calling，而是让模型只输出一个轻量 JSON action array：
+
+```json
+[
+  {"local_id": 12, "action": "turn_on"}
 ]
 ```
+
+如果不需要执行动作，模型输出空数组：
+
+```json
+[]
+```
+
+这个选择是为了降低 token 占用、减少本地模型 tool-call 兼容性问题，并让本地 llama-server 只承担一次普通 chat completion。后端仍把每个 action 视为一次 `execute_plan` 工具调用来审计和执行。
 
 控制平面把统一语义翻译成 IoT 平台 payload（`turn_on` → `{"state": "ON"}`），并做：
 
@@ -325,7 +322,7 @@ tools = [
 - 幂等去重（同 trigger_id + 同 plan 5 秒内忽略重复）
 - 审计落库
 
-Agent 看不到 payload 字段名，看到的只是 `action: turn_on`。这是文档 6.5 节的硬边界。
+Agent 看不到厂商 payload 细节，看到的是 `local_id` 和 `action: turn_on` 这类统一语义。最终动作仍然必须经过控制平面，这是文档 6.5 节的硬边界。
 
 ### 4.4 ContextPilot 集成方式
 
@@ -351,12 +348,11 @@ messages = cp.optimize(
     conversation_id=f"{home_id}_{scene_id}",  # 主动线程 ID
 )
 
-# messages 已经是 OpenAI 格式，直接喂 llama-server
+# messages 已经是 OpenAI 格式，直接喂 llama-server；不传 OpenAI tools，
+# 由 prompt 要求模型输出 JSON action array。
 resp = await openai_client.chat.completions.create(
     model=settings.llm_model,
     messages=messages,
-    tools=TOOLS,                               # OpenAI function calling 风格
-    tool_choice="auto",
     temperature=settings.llm_temperature,
 )
 ```
@@ -369,14 +365,16 @@ resp = await openai_client.chat.completions.create(
 - 如果用户后续改用 `contextpilot-llama-server` 启动（仅启动命令换前缀），ContextPilot 会通过 LD_PRELOAD 拦截 KV 失效事件，命中率更精确——这是优化项，不影响 v1 跑通
 - Agent loop 不感知这层差异，永远只用标准 OpenAI SDK
 
-### 4.5 工具调用兼容性的兜底
+### 4.5 JSON 动作解析兜底
 
-不同模型对 OpenAI `tools` 字段的支持质量不一。v1 做两层防御：
+不同模型对 JSON 输出的稳定性不同。v1 的兜底策略是：
 
-1. **首选**：用 `tools` + `tool_choice="auto"` 走结构化函数调用
-2. **降级**：如果模型连续 N 次返回非法 tool_call JSON，agent loop 自动切到 ReAct 风格的纯文本 prompt（`Action: execute_plan\nArgs: {...}`），用正则解析。降级状态打日志，便于换模型时观察
+1. 首选解析 Markdown fenced JSON 代码块里的数组
+2. 如果没有代码块，则解析响应文本里的第一个 JSON 数组
+3. 如果解析失败，记录 `json_parse_error`，本轮不执行任何动作
+4. 如果数组为空，视为 Agent 主动 skip，清除 inflight，不写 cooldown
 
-env 里 `BANBU_LLM_TOOLCALL_MODE` 控制：`auto`（默认，先试结构化，失败降级）、`structured`（强制）、`react`（强制 ReAct）。
+`BANBU_LLM_TOOLCALL_MODE` 已保留为未来扩展配置，但当前运行时不使用它切换 OpenAI structured tools。
 
 ### 4.6 用户配置文件：设备清单与场景目录
 
@@ -518,7 +516,7 @@ v2 把 runtime 和 snapshot 搬 Redis 即可横向扩展，对上层接口零改
 ### 阶段 4：Turn + Context + Agent + 控制平面（约 3 天）
 
 - [ ] `turn/builder.py`、`context/selector.py`、`context/assembler.py`、`context/pilot.py`
-- [ ] `agent/loop.py`：OpenAI 兼容 tool use 循环 + ReAct 降级路径
+- [ ] `agent/loop.py`：轻量 JSON action-array 解析与执行
 - [ ] `control/plane.py` + `control/executor.py`：动作语义翻译 + 调 `iot_client.control`
 - [ ] 审计写 SQLite
 - [ ] **退出标准**：阶段 3 的 trigger 真的能让 LLM 输出 `execute_plan(turn_on)`，玄关灯实际亮起，cooldown 写入
@@ -584,8 +582,8 @@ LLM 调用的非确定性：v1 默认 `temperature=0`（env 可改），并对 p
 | 多家庭 / 多用户 | 暂缓 | 字段已预留 home_id/user_id，逻辑只跑单家庭 |
 | 用户画像 / 长期记忆 | 暂缓 | context/selector 留扩展点，不实现 |
 | 复杂触发类型 | 已支持 | sequential / edge_triggered / windowed_all / duration_triggered 均有内存 runtime；runtime 持久化暂缓 |
-| LLM 失控 | 受控 | 只暴露 2 个工具；execute_plan 必经 control plane |
-| 本地模型 tool calling 不稳 | 已设防 | `BANBU_LLM_TOOLCALL_MODE=auto` 自动从结构化降级 ReAct |
+| LLM 失控 | 受控 | Agent 只能输出 JSON action array；每个 action 必经 control plane |
+| 本地模型 tool calling 不稳 | 已规避 | v1 不依赖 OpenAI tools，使用轻量 JSON action-array 协议 |
 | 本地模型 / 端点变更 | 零代码改动 | 全走 `.env`，重启即可生效 |
 
 ---
