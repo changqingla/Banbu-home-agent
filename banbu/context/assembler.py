@@ -15,6 +15,16 @@ from banbu.scenes.definition import DurationTrigger, Trigger, VisionTrigger, Win
 from .selector import SelectedContext
 
 
+TOOL_SCHEMA_BLOCK = """\
+[tool schema]
+execute_plan action array:
+  [{"local_id": <int>, "action": "<supported_action>", "params": <object optional>}]
+Skip by returning [].
+Use only actions advertised in actions_hint or in the matching device actions list.
+The backend validates device capability, idempotency, and execution.
+"""
+
+
 def _device_block(dev, snap) -> str:
     actions = sorted(effective_actions(dev.spec))
     aliases = json.dumps(dev.spec.aliases, ensure_ascii=False)
@@ -102,6 +112,7 @@ def assemble_blocks(ctx: SelectedContext) -> list[str]:
 
     name_to_local_id = {dev.spec.friendly_name: dev.local_id for dev in ctx.devices}
     blocks.append(f"[system policy]\n{SYSTEM_POLICY}")
+    blocks.append(TOOL_SCHEMA_BLOCK)
     blocks.append(_scene_block(ctx.scene, name_to_local_id))
     blocks.append(_trigger_facts_block(ctx))
     blocks.append(_feedback_block(ctx))
