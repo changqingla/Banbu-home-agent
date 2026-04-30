@@ -25,10 +25,11 @@ class VisionService:
             log.info("vision service disabled")
             return
         if not self._scenes:
-            raise RuntimeError(
-                f"vision service enabled but no vision_match scenes reference "
-                f"{self._settings.vision_device_id!r}"
+            log.warning(
+                "vision service enabled but no loaded vision_match scenes reference %r; skipping vision service",
+                self._settings.vision_device_id,
             )
+            return
         if self._task is not None and not self._task.done():
             return
         self._task = asyncio.create_task(self._run())

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from banbu.reactive.runner import ReactiveRunResult
 
-
 ACTION_LABELS = {
     "turn_on": "打开",
     "turn_off": "关闭",

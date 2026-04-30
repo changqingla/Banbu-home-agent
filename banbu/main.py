@@ -60,7 +60,7 @@ def _feedback_outcome(agent_result: AgentResult, tool_results: list[dict]) -> tu
     return "skipped", "agent returned no executable actions"
 
 
-def _lan_ip(target: str = "192.168.1.78") -> str:
+def _lan_ip(target: str = "192.168.0.238") -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect((target, 1))

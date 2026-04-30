@@ -31,12 +31,13 @@ def _strip_payload_prefix(field: str) -> str:
     return field[len("payload."):] if field.startswith("payload.") else field
 
 
-def _validate_against_devices(scene: Scene, resolver: DeviceResolver) -> list[str]:
+def _validate_against_devices(scene: Scene, resolver: DeviceResolver) -> tuple[list[str], list[str]]:
     errors: list[str] = []
+    missing_devices: list[str] = []
 
     for name in scene.all_referenced_devices():
         if resolver.by_name(name) is None:
-            errors.append(f"unknown device {name!r} (not in devices.yaml)")
+            missing_devices.append(name)
 
     if isinstance(scene.trigger, Trigger):
         for step in scene.trigger.steps:
@@ -92,7 +93,7 @@ def _validate_against_devices(scene: Scene, resolver: DeviceResolver) -> list[st
                 f"precondition on {pre.device}: field {pre.field!r} not in capabilities {sorted(dev.capabilities)}"
             )
 
-    return errors
+    return errors, missing_devices
 
 
 def load_scenes(scenes_dir: Path, resolver: DeviceResolver) -> list[Scene]:
@@ -126,7 +127,15 @@ def load_scenes(scenes_dir: Path, resolver: DeviceResolver) -> list[Scene]:
             errors.append(f"{path.name}: duplicate scene_id {scene.scene_id!r}")
             continue
 
-        device_errors = _validate_against_devices(scene, resolver)
+        device_errors, missing_devices = _validate_against_devices(scene, resolver)
+        if missing_devices:
+            log.warning(
+                "skipping scene %s from %s: referenced devices are unavailable: %s",
+                scene.scene_id,
+                path.name,
+                sorted(missing_devices),
+            )
+            continue
         if device_errors:
             joined = "\n    - ".join(device_errors)
             errors.append(f"{path.name} ({scene.scene_id}):\n    - {joined}")

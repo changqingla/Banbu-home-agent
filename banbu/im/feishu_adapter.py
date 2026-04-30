@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from contextlib import contextmanager
 from typing import Any
 
 import lark_oapi as lark
@@ -82,7 +84,7 @@ class FeishuAdapter:
             )
             .build()
         )
-        response = await self._sdk_client().im.v1.message.acreate(request)
+        response = await self._send_message(request)
         if not response.success():
             raise IMAdapterError(
                 f"feishu send message failed: code={response.code} msg={response.msg}"
@@ -90,6 +92,15 @@ class FeishuAdapter:
         if response.data is None:
             return ""
         return str(response.data.message_id or "")
+
+    async def _send_message(self, request: CreateMessageRequest) -> Any:
+        import asyncio
+
+        return await asyncio.to_thread(self._send_message_sync, request)
+
+    def _send_message_sync(self, request: CreateMessageRequest) -> Any:
+        with _without_invalid_socks_proxy():
+            return self._sdk_client().im.v1.message.create(request)
 
     def parse_sdk_message(self, event: Any) -> IncomingIMMessage:
         payload = {
@@ -218,3 +229,21 @@ class FeishuAdapter:
             "content": getattr(message, "content", None),
             "create_time": getattr(message, "create_time", None),
         }
+
+
+@contextmanager
+def _without_invalid_socks_proxy():
+    keys = ["ALL_PROXY", "all_proxy"]
+    saved = {key: os.environ.get(key) for key in keys}
+    try:
+        for key in keys:
+            value = os.environ.get(key, "")
+            if value.lower().startswith("socks://"):
+                os.environ.pop(key, None)
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
