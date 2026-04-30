@@ -33,6 +33,13 @@ def _resolve(body: dict[str, Any], resolver: DeviceResolver):
             d = resolver.by_local_id(v)
             if d:
                 return d
+        elif isinstance(v, str):
+            try:
+                d = resolver.by_local_id(int(v))
+                if d:
+                    return d
+            except (ValueError, TypeError):
+                pass
     for key in ("ieee_address", "ieee", "mac"):
         v = body.get(key)
         if isinstance(v, str):
@@ -120,17 +127,7 @@ def normalize_batch(
             log.warning("batch item missing values dict: %r", _safe(item))
             continue
 
-        device = None
-        if isinstance(device_id, int):
-            device = resolver.by_local_id(device_id)
-        elif isinstance(device_id, str):
-            try:
-                device = resolver.by_local_id(int(device_id))
-            except (ValueError, TypeError):
-                pass
-            if device is None:
-                device = resolver.by_name(device_id)
-
+        device = _resolve(item, resolver)
         if device is None:
             log.warning("batch item device_id=%r did not resolve to a managed device", device_id)
             continue

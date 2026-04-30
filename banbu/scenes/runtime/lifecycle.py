@@ -25,20 +25,20 @@ class SceneState:
     cooldown_until: float = 0.0
 
     def is_in_cooldown(self, now: float | None = None) -> bool:
-        return (now or time.time()) < self.cooldown_until
+        return (time.time() if now is None else now) < self.cooldown_until
 
     def is_inflight(self, now: float | None = None) -> bool:
-        return (now or time.time()) < self.inflight_until
+        return (time.time() if now is None else now) < self.inflight_until
 
     def reset_cursor(self) -> None:
         self.cursor = 0
         self.last_step_at = None
 
     def set_inflight(self, seconds: float, now: float | None = None) -> None:
-        self.inflight_until = (now or time.time()) + seconds
+        self.inflight_until = (time.time() if now is None else now) + seconds
 
     def clear_inflight(self) -> None:
         self.inflight_until = 0.0
 
     def set_cooldown(self, seconds: float, now: float | None = None) -> None:
-        self.cooldown_until = (now or time.time()) + seconds
+        self.cooldown_until = (time.time() if now is None else now) + seconds

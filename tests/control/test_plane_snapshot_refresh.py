@@ -67,7 +67,7 @@ async def test_successful_execute_refreshes_target_snapshot(tmp_path: Path) -> N
     cache.update(12, {"state": "OFF"}, source="test")
     audit = _audit(tmp_path)
     executor = RecordingExecutor(refreshed_payload={"state": "ON", "linkquality": 236})
-    control = ControlPlane(executor, resolver, cache, audit)
+    control = ControlPlane(executor, resolver, audit, cache=cache)
 
     result = await control.execute(
         12,
@@ -99,7 +99,7 @@ async def test_refresh_failure_keeps_successful_execute_result(tmp_path: Path) -
     cache.update(12, {"state": "OFF"}, source="test")
     audit = _audit(tmp_path)
     executor = RecordingExecutor(refresh_error=RuntimeError("device info timeout"))
-    control = ControlPlane(executor, resolver, cache, audit)
+    control = ControlPlane(executor, resolver, audit, cache=cache)
 
     result = await control.execute(
         12,

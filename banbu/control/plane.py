@@ -66,30 +66,19 @@ class ControlPlane:
         self,
         executor: Executor,
         resolver: DeviceResolver,
-        cache_or_audit: SnapshotCache | AuditLog,
-        audit_or_policy: AuditLog | AccessPolicy | None = None,
+        audit: AuditLog,
         policy: AccessPolicy | None = None,
         *,
+        cache: SnapshotCache | None = None,
         idempotency_window_seconds: float = 5.0,
         conflict_window_seconds: float = 2.0,
         scene_priorities: dict[str, int] | None = None,
     ) -> None:
-        if isinstance(cache_or_audit, SnapshotCache):
-            cache: SnapshotCache | None = cache_or_audit
-            if not isinstance(audit_or_policy, AuditLog):
-                raise TypeError("audit must be provided after SnapshotCache")
-            audit = audit_or_policy
-            resolved_policy = policy
-        else:
-            cache = None
-            audit = cache_or_audit
-            resolved_policy = audit_or_policy if isinstance(audit_or_policy, AccessPolicy) else policy
-
         self._executor = executor
         self._resolver = resolver
         self._cache = cache
         self._audit = audit
-        self._policy = resolved_policy or _AllowAllPolicy()
+        self._policy = policy or _AllowAllPolicy()
         self._window = idempotency_window_seconds
         self._recent: dict[str, float] = {}
         self._conflict_window = conflict_window_seconds

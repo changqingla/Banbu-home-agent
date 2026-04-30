@@ -33,8 +33,10 @@ from banbu.devices.registry import build_registry
 from banbu.devices.resolver import DeviceResolver
 from banbu.dispatcher import Dispatcher
 from banbu.ingest.poller import FallbackPoller
-from banbu.ingest.webhook import make_router
+from banbu.im.router import make_router as make_im_router
+from banbu.ingest.webhook import make_router as make_ingest_router
 from banbu.policy import load_policy
+from banbu.reactive.runner import ReactiveRunner
 from banbu.scenes.definition import Scene
 from banbu.scenes.loader import load_scenes
 from banbu.scenes.reverse_index import build_reverse_index
@@ -198,9 +200,9 @@ async def lifespan(app: FastAPI):
     control = ControlPlane(
         executor,
         resolver,
-        cache,
         audit,
         policy,
+        cache=cache,
         scene_priorities={scene.scene_id: scene.policy.priority for scene in scenes},
     )
     agent = AgentLoop(settings, audit)
@@ -238,16 +240,29 @@ async def lifespan(app: FastAPI):
         feedback_store=feedback_store,
     )
 
-    app.include_router(make_router(
+    app.include_router(make_ingest_router(
         path=settings.webhook_path,
         resolver=resolver,
         cache=cache,
         on_event=dispatcher.on_event,
     ))
 
+    reactive_runner = ReactiveRunner(
+        resolver=resolver,
+        control=control,
+        audit=audit,
+        scenes=scenes,
+    )
+    app.include_router(make_im_router(
+        settings=settings,
+        runner=reactive_runner,
+        scheduler=turn_scheduler,
+    ))
+
     poller = FallbackPoller(
         client, resolver, cache,
         interval_seconds=settings.fallback_poll_seconds,
+        tick_timeout_seconds=settings.iot_timeout_seconds + 2,
         on_event=dispatcher.on_event,
         on_tick=dispatcher.on_tick,
     )
@@ -271,8 +286,8 @@ async def lifespan(app: FastAPI):
     app.state.audit = audit
     app.state.control = control
     app.state.agent = agent
+    app.state.reactive_runner = reactive_runner
     app.state.feedback_store = feedback_store
-    app.state.turn_scheduler = turn_scheduler
     app.state.turn_scheduler = turn_scheduler
 
     try:

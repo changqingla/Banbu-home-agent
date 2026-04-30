@@ -16,14 +16,28 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
     llm_timeout_seconds: int = 60
-    llm_toolcall_mode: str = "auto"
 
-    iot_base_url: str = "http://192.168.1.78:8000"
+    iot_base_url: str = "http://localhost:8000"
     iot_timeout_seconds: int = 10
 
     host: str = "0.0.0.0"
     port: int = 9000
     webhook_path: str = "/api/v2/events/batch"
+
+    im_enabled: bool = False
+    im_feishu_enabled: bool = False
+    im_feishu_path: str = "/api/v1/im/feishu/events"
+    im_feishu_verification_token: str = ""
+    im_feishu_app_id: str = ""
+    im_feishu_app_secret: str = ""
+    im_feishu_api_base_url: str = "https://open.feishu.cn"
+    im_feishu_reply_enabled: bool = False
+
+    im_weixin_enabled: bool = False
+    im_weixin_path: str = "/api/v1/im/weixin/messages"
+    im_weixin_bridge_token: str = ""
+    im_weixin_reply_url: str = ""
+    im_weixin_reply_timeout_seconds: int = 10
 
     vision_enabled: bool = False
     vision_rtsp_url: str = ""

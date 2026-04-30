@@ -124,7 +124,7 @@
 
 - 主动入口：设备状态变化触发场景
 
-- 被动入口：用户通过 App、Web、语音等渠道发出请求
+- 被动入口：用户通过 App、IM、语音等渠道发出请求
 
 - 两种入口在进入统一主干后，共享上下文选择、Agent 决策、控制平面和设备执行能力
 
@@ -133,7 +133,9 @@
 ```mermaid
 flowchart TD
     subgraph Reactive["被动响应轮次（用户请求触发）"]
-        U["用户问题\nApp / Web / 语音"]
+        U["用户问题\nApp / IM / 语音"]
+        IM["IM 通道\n飞书 · 个人微信"]
+        IM_ADAPTER["IM Adapter\n平台消息 → User Turn"]
         RAG["场景 RAG 检索\n用户意图 → 匹配场景定义"]
     end
 
@@ -181,7 +183,9 @@ flowchart TD
         FEEDBACK["状态回流 · 反馈 · 审计\n快照更新 · 冷却写入 · 记忆"]
     end
 
-    U --> RAG
+    U --> IM
+    IM --> IM_ADAPTER
+    IM_ADAPTER --> RAG
     RAG --> TURN
 
     RTSP --> MOTION
