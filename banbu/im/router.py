@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from banbu.config.settings import Settings
-from banbu.reactive.runner import ReactiveRunner, ReactiveRunResult, result_payload
+from banbu.reactive.agent_runner import ReactiveAgentResult, ReactiveAgentRunner, result_payload
 from banbu.turn.builder import from_reactive
 from banbu.turn.scheduler import TurnScheduler, reactive_key
 
@@ -22,20 +22,20 @@ log = logging.getLogger(__name__)
 def make_router(
     *,
     settings: Settings,
-    runner: ReactiveRunner,
+    runner: ReactiveAgentRunner,
     scheduler: TurnScheduler,
 ) -> APIRouter:
     router = APIRouter()
     weixin = WeixinBridgeAdapter(settings)
 
-    async def run_message(message: IncomingIMMessage) -> ReactiveRunResult:
+    async def run_message(message: IncomingIMMessage) -> ReactiveAgentResult:
         turn = from_reactive(
             message.text,
             home_id=message.home_id,
             user_id=message.user_id,
             source=message.source,
         )
-        holder: dict[str, ReactiveRunResult] = {}
+        holder: dict[str, ReactiveAgentResult] = {}
 
         async def job() -> None:
             holder["result"] = await runner.run(turn)
@@ -94,17 +94,17 @@ def make_router(
 def make_feishu_sdk_service(
     *,
     settings: Settings,
-    runner: ReactiveRunner,
+    runner: ReactiveAgentRunner,
     scheduler: TurnScheduler,
 ) -> FeishuSDKService:
-    async def run_message(message: IncomingIMMessage) -> ReactiveRunResult:
+    async def run_message(message: IncomingIMMessage) -> ReactiveAgentResult:
         turn = from_reactive(
             message.text,
             home_id=message.home_id,
             user_id=message.user_id,
             source=message.source,
         )
-        holder: dict[str, ReactiveRunResult] = {}
+        holder: dict[str, ReactiveAgentResult] = {}
 
         async def job() -> None:
             holder["result"] = await runner.run(turn)
