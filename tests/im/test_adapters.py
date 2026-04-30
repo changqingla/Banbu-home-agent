@@ -45,10 +45,34 @@ def test_feishu_adapter_rejects_bad_verification_token() -> None:
         raise AssertionError("expected token mismatch")
 
 
-def test_feishu_url_challenge_returns_challenge() -> None:
+def test_feishu_adapter_parses_sdk_event() -> None:
     adapter = FeishuAdapter(Settings(im_feishu_verification_token="verify_me"))
 
-    assert adapter.verify_url_challenge({"token": "verify_me", "challenge": "abc"}) == {"challenge": "abc"}
+    class Obj:
+        def __init__(self, **kwargs) -> None:
+            self.__dict__.update(kwargs)
+
+    event = Obj(
+        header=Obj(event_id="evt_1", token="verify_me", create_time="1777372205120"),
+        event=Obj(
+            sender=Obj(sender_id=Obj(user_id="user_1", open_id=None, union_id=None)),
+            message=Obj(
+                message_id="msg_1",
+                chat_id="oc_chat",
+                message_type="text",
+                content='{"text":"打开玄关灯"}',
+                create_time="1777372205120",
+            ),
+        ),
+    )
+
+    msg = adapter.parse_sdk_message(event)
+
+    assert msg.platform == "feishu"
+    assert msg.message_id == "msg_1"
+    assert msg.chat_id == "oc_chat"
+    assert msg.user_id == "feishu:user_1"
+    assert msg.text == "打开玄关灯"
 
 
 def test_weixin_bridge_adapter_parses_message() -> None:

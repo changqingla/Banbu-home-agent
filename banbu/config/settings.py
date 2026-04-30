@@ -26,12 +26,13 @@ class Settings(BaseSettings):
 
     im_enabled: bool = False
     im_feishu_enabled: bool = False
-    im_feishu_path: str = "/api/v1/im/feishu/events"
     im_feishu_verification_token: str = ""
     im_feishu_app_id: str = ""
     im_feishu_app_secret: str = ""
+    im_feishu_encrypt_key: str = ""
     im_feishu_api_base_url: str = "https://open.feishu.cn"
     im_feishu_reply_enabled: bool = False
+    im_feishu_event_dedupe_ttl_seconds: int = 300
 
     im_weixin_enabled: bool = False
     im_weixin_path: str = "/api/v1/im/weixin/messages"

@@ -77,39 +77,6 @@ def _client(tmp_path, settings: Settings, users: tuple[str, ...]) -> tuple[TestC
     return TestClient(app), executor
 
 
-def test_feishu_route_runs_reactive_turn(tmp_path) -> None:
-    settings = Settings(
-        home_id="home_a",
-        im_enabled=True,
-        im_feishu_enabled=True,
-        im_feishu_verification_token="verify_me",
-    )
-    client, executor = _client(tmp_path, settings, ("feishu:user_1",))
-
-    resp = client.post(
-        settings.im_feishu_path,
-        json={
-            "header": {"event_id": "evt_1", "token": "verify_me"},
-            "event": {
-                "sender": {"sender_id": {"user_id": "user_1"}},
-                "message": {
-                    "message_id": "msg_1",
-                    "chat_id": "oc_chat",
-                    "message_type": "text",
-                    "content": '{"text":"打开玄关灯"}',
-                },
-            },
-        },
-    )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["platform"] == "feishu"
-    assert body["reply"] == "已打开玄关灯。"
-    assert executor.calls == [(2, {"state": "ON"})]
-
-
 def test_weixin_route_runs_reactive_turn(tmp_path) -> None:
     settings = Settings(
         home_id="home_a",

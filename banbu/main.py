@@ -33,7 +33,7 @@ from banbu.devices.registry import build_registry
 from banbu.devices.resolver import DeviceResolver
 from banbu.dispatcher import Dispatcher
 from banbu.ingest.poller import FallbackPoller
-from banbu.im.router import make_router as make_im_router
+from banbu.im.router import make_feishu_sdk_service, make_router as make_im_router
 from banbu.ingest.webhook import make_router as make_ingest_router
 from banbu.policy import load_policy
 from banbu.reactive.runner import ReactiveRunner
@@ -258,6 +258,12 @@ async def lifespan(app: FastAPI):
         runner=reactive_runner,
         scheduler=turn_scheduler,
     ))
+    feishu_sdk_service = make_feishu_sdk_service(
+        settings=settings,
+        runner=reactive_runner,
+        scheduler=turn_scheduler,
+    )
+    feishu_sdk_service.start()
 
     poller = FallbackPoller(
         client, resolver, cache,
@@ -287,12 +293,14 @@ async def lifespan(app: FastAPI):
     app.state.control = control
     app.state.agent = agent
     app.state.reactive_runner = reactive_runner
+    app.state.feishu_sdk_service = feishu_sdk_service
     app.state.feedback_store = feedback_store
     app.state.turn_scheduler = turn_scheduler
 
     try:
         yield
     finally:
+        await feishu_sdk_service.stop()
         await turn_scheduler.aclose()
         await vision_service.stop()
         await poller.stop()
