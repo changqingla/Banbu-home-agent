@@ -57,6 +57,16 @@ class ReactiveMatch:
         return self.device.local_id
 
 
+@dataclass(frozen=True)
+class ReactiveDeviceMention:
+    device: ResolvedDevice
+    device_reasons: tuple[str, ...]
+
+    @property
+    def local_id(self) -> int:
+        return self.device.local_id
+
+
 class ReactiveMatchError(ValueError):
     def __init__(
         self,
@@ -190,5 +200,13 @@ def match_device_action(utterance: str, resolver: DeviceResolver) -> ReactiveMat
         device=device.device,
         action=action.action,
         action_terms=action.terms,
+        device_reasons=device.reasons,
+    )
+
+
+def match_device_mention(utterance: str, resolver: DeviceResolver) -> ReactiveDeviceMention:
+    device = _select_device(utterance, resolver)
+    return ReactiveDeviceMention(
+        device=device.device,
         device_reasons=device.reasons,
     )

@@ -12,7 +12,7 @@ from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as FeishuWSClient
 
 from banbu.config.settings import Settings
-from banbu.reactive.runner import ReactiveRunResult
+from banbu.reactive.agent_runner import ReactiveAgentResult
 from banbu.turn.scheduler import reactive_key
 
 from .feishu_adapter import FeishuAdapter, IMAdapterError
@@ -21,7 +21,7 @@ from .types import IncomingIMMessage
 
 log = logging.getLogger(__name__)
 
-MessageRunner = Callable[[IncomingIMMessage], Awaitable[ReactiveRunResult]]
+MessageRunner = Callable[[IncomingIMMessage], Awaitable[ReactiveAgentResult]]
 
 
 class FeishuSDKService:

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -8,7 +10,8 @@ from banbu.devices.definition import DeviceSpec, ResolvedDevice
 from banbu.devices.resolver import DeviceResolver
 from banbu.im.router import make_router
 from banbu.policy.access import AccessPolicy, AccessPolicyFile
-from banbu.reactive.runner import ReactiveRunner
+from banbu.reactive.agent_runner import ReactiveAgentRunner
+from banbu.state.snapshot_cache import SnapshotCache
 from banbu.turn.scheduler import TurnScheduler
 
 
@@ -18,6 +21,26 @@ class FakeExecutor:
 
     async def run(self, local_id: int, payload: dict) -> None:
         self.calls.append((local_id, payload))
+
+
+class FakeCompletions:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = responses
+
+    async def create(self, **kwargs):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content=self.responses.pop(0)),
+                )
+            ]
+        )
+
+
+class FakeClient:
+    def __init__(self, responses: list[str]) -> None:
+        self.chat = SimpleNamespace(completions=FakeCompletions(responses))
 
 
 def _resolver() -> DeviceResolver:
@@ -65,12 +88,25 @@ def _policy(*users: str) -> AccessPolicy:
     )
 
 
-def _client(tmp_path, settings: Settings, users: tuple[str, ...]) -> tuple[TestClient, FakeExecutor]:
+def _client(
+    tmp_path,
+    settings: Settings,
+    users: tuple[str, ...],
+    responses: list[str],
+) -> tuple[TestClient, FakeExecutor]:
     resolver = _resolver()
     audit = AuditLog(tmp_path / "audit.sqlite")
     executor = FakeExecutor()
-    control = ControlPlane(executor, resolver, audit, _policy(*users))
-    runner = ReactiveRunner(resolver=resolver, control=control, audit=audit)
+    cache = SnapshotCache(resolver)
+    control = ControlPlane(executor, resolver, audit, _policy(*users), cache=cache)
+    runner = ReactiveAgentRunner(
+        settings=settings,
+        resolver=resolver,
+        control=control,
+        audit=audit,
+        cache=cache,
+        client=FakeClient(responses),
+    )
     scheduler = TurnScheduler()
     app = FastAPI()
     app.include_router(make_router(settings=settings, runner=runner, scheduler=scheduler))
@@ -84,7 +120,12 @@ def test_weixin_route_runs_reactive_turn(tmp_path) -> None:
         im_weixin_enabled=True,
         im_weixin_bridge_token="secret",
     )
-    client, executor = _client(tmp_path, settings, ("weixin:user_1",))
+    client, executor = _client(
+        tmp_path,
+        settings,
+        ("weixin:user_1",),
+        ['{"intent":"control_request","tool_calls":[{"name":"execute_plan","args":{"local_id":2,"action":"turn_on"}}],"final_message":""}'],
+    )
 
     resp = client.post(
         settings.im_weixin_path,
@@ -105,13 +146,46 @@ def test_weixin_route_runs_reactive_turn(tmp_path) -> None:
     assert executor.calls == [(2, {"state": "ON"})]
 
 
+def test_weixin_route_answers_greeting_without_execution(tmp_path) -> None:
+    settings = Settings(
+        home_id="home_a",
+        im_enabled=True,
+        im_weixin_enabled=True,
+        im_weixin_bridge_token="secret",
+    )
+    client, executor = _client(
+        tmp_path,
+        settings,
+        ("weixin:user_1",),
+        ['{"intent":"greeting","tool_calls":[],"final_message":"你好，我是 Banbu。"}'],
+    )
+
+    resp = client.post(
+        settings.im_weixin_path,
+        headers={"x-banbu-im-token": "secret"},
+        json={
+            "conversation_id": "conv_1",
+            "user_id": "user_1",
+            "message_id": "msg_1",
+            "text": "你好",
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["result"]["intent"] == "greeting"
+    assert "Banbu" in body["reply"]
+    assert executor.calls == []
+
+
 def test_weixin_route_rejects_bad_bridge_token(tmp_path) -> None:
     settings = Settings(
         im_enabled=True,
         im_weixin_enabled=True,
         im_weixin_bridge_token="secret",
     )
-    client, _executor = _client(tmp_path, settings, ("weixin:user_1",))
+    client, _executor = _client(tmp_path, settings, ("weixin:user_1",), [])
 
     resp = client.post(
         settings.im_weixin_path,

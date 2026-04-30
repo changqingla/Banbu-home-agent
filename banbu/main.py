@@ -36,7 +36,7 @@ from banbu.ingest.poller import FallbackPoller
 from banbu.im.router import make_feishu_sdk_service, make_router as make_im_router
 from banbu.ingest.webhook import make_router as make_ingest_router
 from banbu.policy import load_policy
-from banbu.reactive.runner import ReactiveRunner
+from banbu.reactive.agent_runner import ReactiveAgentRunner
 from banbu.scenes.definition import Scene
 from banbu.scenes.loader import load_scenes
 from banbu.scenes.reverse_index import build_reverse_index
@@ -247,10 +247,12 @@ async def lifespan(app: FastAPI):
         on_event=dispatcher.on_event,
     ))
 
-    reactive_runner = ReactiveRunner(
+    reactive_runner = ReactiveAgentRunner(
+        settings=settings,
         resolver=resolver,
         control=control,
         audit=audit,
+        cache=cache,
         scenes=scenes,
     )
     app.include_router(make_im_router(
