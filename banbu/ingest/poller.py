@@ -43,6 +43,7 @@ class FallbackPoller:
         cache: SnapshotCache,
         *,
         interval_seconds: int,
+        tick_timeout_seconds: float = 15.0,
         on_event: EventHandler | None = None,
         on_tick: TickHandler | None = None,
     ) -> None:
@@ -50,6 +51,7 @@ class FallbackPoller:
         self._resolver = resolver
         self._cache = cache
         self._interval = interval_seconds
+        self._tick_timeout = tick_timeout_seconds
         self._on_event = on_event
         self._on_tick = on_tick
         self._task: asyncio.Task | None = None
@@ -64,7 +66,7 @@ class FallbackPoller:
         self._stop.set()
         if self._task is not None:
             try:
-                await asyncio.wait_for(self._task, timeout=self._interval + 2)
+                await asyncio.wait_for(self._task, timeout=self._tick_timeout)
             except asyncio.TimeoutError:
                 self._task.cancel()
 

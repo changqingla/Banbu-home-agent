@@ -52,14 +52,19 @@ class AuditLog:
         scene_id: str | None = None,
     ) -> None:
         body = json.dumps(payload, ensure_ascii=False, default=str)
-        with self._lock, self._conn() as c:
-            c.execute(
-                "INSERT INTO audit (trigger_id, scene_id, kind, payload, created_at) VALUES (?,?,?,?,?)",
-                (trigger_id, scene_id, kind, body, time.time()),
-            )
+        with self._lock:
+            c = self._conn()
+            try:
+                c.execute(
+                    "INSERT INTO audit (trigger_id, scene_id, kind, payload, created_at) VALUES (?,?,?,?,?)",
+                    (trigger_id, scene_id, kind, body, time.time()),
+                )
+            finally:
+                c.close()
 
     def by_trigger(self, trigger_id: str) -> list[dict[str, Any]]:
-        with self._conn() as c:
+        c = self._conn()
+        try:
             cur = c.execute(
                 "SELECT id, trigger_id, scene_id, kind, payload, created_at FROM audit WHERE trigger_id=? ORDER BY id",
                 (trigger_id,),
@@ -75,3 +80,5 @@ class AuditLog:
                 }
                 for r in cur.fetchall()
             ]
+        finally:
+            c.close()

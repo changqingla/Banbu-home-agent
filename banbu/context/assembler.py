@@ -55,13 +55,14 @@ def _scene_block(scene, name_to_local_id: dict) -> str:
     elif isinstance(scene.trigger, DurationTrigger):
         c = scene.trigger.condition
         steps = f"duration: {c.device}.{c.field} == {c.value!r} for {scene.trigger.duration_seconds}s"
-    else:
-        assert isinstance(scene.trigger, VisionTrigger)
+    elif isinstance(scene.trigger, VisionTrigger):
         steps = (
             f"vision: {scene.trigger.device}.{scene.trigger.field} == {scene.trigger.value!r}; "
             f"confidence>={scene.vision_policy.confidence_threshold}; "
             f"consecutive_hits={scene.vision_policy.consecutive_hits}"
         )
+    else:
+        raise ValueError(f"_scene_block: unsupported trigger type {type(scene.trigger).__name__!r}")
     pres = "; ".join(
         f"{p.device}.{p.field} {p.op} {p.value!r} (on_missing={p.on_missing})"
         for p in scene.preconditions

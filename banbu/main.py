@@ -198,9 +198,9 @@ async def lifespan(app: FastAPI):
     control = ControlPlane(
         executor,
         resolver,
-        cache,
         audit,
         policy,
+        cache=cache,
         scene_priorities={scene.scene_id: scene.policy.priority for scene in scenes},
     )
     agent = AgentLoop(settings, audit)
@@ -248,6 +248,7 @@ async def lifespan(app: FastAPI):
     poller = FallbackPoller(
         client, resolver, cache,
         interval_seconds=settings.fallback_poll_seconds,
+        tick_timeout_seconds=settings.iot_timeout_seconds + 2,
         on_event=dispatcher.on_event,
         on_tick=dispatcher.on_tick,
     )
@@ -272,7 +273,6 @@ async def lifespan(app: FastAPI):
     app.state.control = control
     app.state.agent = agent
     app.state.feedback_store = feedback_store
-    app.state.turn_scheduler = turn_scheduler
     app.state.turn_scheduler = turn_scheduler
 
     try:

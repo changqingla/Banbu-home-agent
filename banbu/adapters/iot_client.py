@@ -46,13 +46,19 @@ class IoTClient:
         resp = await self._client.get(path, params={k: v for k, v in params.items() if v is not None})
         if resp.status_code >= 400:
             raise IoTError(f"GET {path} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception as e:
+            raise IoTError(f"GET {path} -> non-JSON response: {e}") from e
 
     async def _post(self, path: str, *, params: dict[str, Any] | None = None, json: Any = None) -> Any:
         resp = await self._client.post(path, params=params or {}, json=json)
         if resp.status_code >= 400:
             raise IoTError(f"POST {path} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception as e:
+            raise IoTError(f"POST {path} -> non-JSON response: {e}") from e
 
     # ── reads ────────────────────────────────────────────────────────
     async def list_devices(self) -> list[dict[str, Any]]:

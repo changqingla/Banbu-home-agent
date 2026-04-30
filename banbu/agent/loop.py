@@ -26,19 +26,32 @@ class AgentResult:
 
 
 def _extract_actions(text: str) -> list[dict[str, Any]]:
-    """Extract the lightweight JSON action array from LLM output."""
+    """Extract the lightweight JSON action array from LLM output.
+
+    Prefers a fenced code block (```json ... ```).  Falls back to scanning
+    all [...] spans and returning the last one that parses as a JSON array
+    containing at least one dict — avoids matching incidental brackets like
+    "[1]" or "[device A]" that appear before the real action array.
+    """
     m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
     if m:
         data = json.loads(m.group(1))
-    else:
-        m = re.search(r"(\[.*?\])", text, re.DOTALL)
-        if not m:
-            return []
-        data = json.loads(m.group(1))
+        if not isinstance(data, list):
+            raise ValueError(f"actions must be a JSON array, got {type(data).__name__}")
+        return [item for item in data if isinstance(item, dict)]
 
-    if not isinstance(data, list):
-        raise ValueError(f"actions must be a JSON array, got {type(data).__name__}")
-    return [item for item in data if isinstance(item, dict)]
+    last_valid: list[dict[str, Any]] | None = None
+    for m in re.finditer(r"\[.*?\]", text, re.DOTALL):
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list) and any(isinstance(item, dict) for item in data):
+            last_valid = [item for item in data if isinstance(item, dict)]
+
+    if last_valid is None:
+        return []
+    return last_valid
 
 
 class AgentLoop:
@@ -48,7 +61,6 @@ class AgentLoop:
         audit: AuditLog,
         *,
         client: Any | None = None,
-        max_iterations: int = 5,  # kept for API compatibility; JSON protocol is one-shot.
     ) -> None:
         self._settings = settings
         self._audit = audit
@@ -67,7 +79,6 @@ class AgentLoop:
         messages: list[dict[str, Any]],
         *,
         on_execute: ExecuteHandler,
-        on_read: Any = None,  # intentionally unused by the lightweight JSON protocol.
         trigger_id: str | None = None,
         scene_id: str | None = None,
     ) -> AgentResult:
