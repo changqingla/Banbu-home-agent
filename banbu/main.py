@@ -33,10 +33,10 @@ from banbu.devices.registry import build_registry
 from banbu.devices.resolver import DeviceResolver
 from banbu.dispatcher import Dispatcher
 from banbu.ingest.poller import FallbackPoller
-from banbu.im.router import make_router as make_im_router
+from banbu.im.router import make_feishu_sdk_service, make_router as make_im_router
 from banbu.ingest.webhook import make_router as make_ingest_router
 from banbu.policy import load_policy
-from banbu.reactive.runner import ReactiveRunner
+from banbu.reactive.agent_runner import ReactiveAgentRunner
 from banbu.scenes.definition import Scene
 from banbu.scenes.loader import load_scenes
 from banbu.scenes.reverse_index import build_reverse_index
@@ -60,7 +60,7 @@ def _feedback_outcome(agent_result: AgentResult, tool_results: list[dict]) -> tu
     return "skipped", "agent returned no executable actions"
 
 
-def _lan_ip(target: str = "192.168.1.78") -> str:
+def _lan_ip(target: str = "192.168.0.238") -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect((target, 1))
@@ -247,10 +247,12 @@ async def lifespan(app: FastAPI):
         on_event=dispatcher.on_event,
     ))
 
-    reactive_runner = ReactiveRunner(
+    reactive_runner = ReactiveAgentRunner(
+        settings=settings,
         resolver=resolver,
         control=control,
         audit=audit,
+        cache=cache,
         scenes=scenes,
     )
     app.include_router(make_im_router(
@@ -258,6 +260,12 @@ async def lifespan(app: FastAPI):
         runner=reactive_runner,
         scheduler=turn_scheduler,
     ))
+    feishu_sdk_service = make_feishu_sdk_service(
+        settings=settings,
+        runner=reactive_runner,
+        scheduler=turn_scheduler,
+    )
+    feishu_sdk_service.start()
 
     poller = FallbackPoller(
         client, resolver, cache,
@@ -287,12 +295,14 @@ async def lifespan(app: FastAPI):
     app.state.control = control
     app.state.agent = agent
     app.state.reactive_runner = reactive_runner
+    app.state.feishu_sdk_service = feishu_sdk_service
     app.state.feedback_store = feedback_store
     app.state.turn_scheduler = turn_scheduler
 
     try:
         yield
     finally:
+        await feishu_sdk_service.stop()
         await turn_scheduler.aclose()
         await vision_service.stop()
         await poller.stop()

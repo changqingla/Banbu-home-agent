@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from contextlib import contextmanager
 from typing import Any
 
-import httpx
+import lark_oapi as lark
+from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
 from banbu.config.settings import Settings
 
@@ -18,15 +21,7 @@ class IMAdapterError(ValueError):
 class FeishuAdapter:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._tenant_token: str | None = None
-        self._tenant_token_expires_at = 0.0
-
-    def verify_url_challenge(self, body: dict[str, Any]) -> dict[str, str] | None:
-        challenge = body.get("challenge")
-        if not isinstance(challenge, str):
-            return None
-        self._verify_token(body.get("token") or body.get("header", {}).get("token"))
-        return {"challenge": challenge}
+        self._client: lark.Client | None = None
 
     def parse_event(self, body: dict[str, Any]) -> IncomingIMMessage:
         header = body.get("header") if isinstance(body.get("header"), dict) else {}
@@ -76,22 +71,46 @@ class FeishuAdapter:
         if not self._settings.im_feishu_app_id or not self._settings.im_feishu_app_secret:
             raise IMAdapterError("feishu reply requires app_id and app_secret")
 
-        token = await self._tenant_access_token()
-        base = self._settings.im_feishu_api_base_url.rstrip("/")
-        async with httpx.AsyncClient(timeout=self._settings.iot_timeout_seconds, trust_env=False) as client:
-            resp = await client.post(
-                f"{base}/open-apis/im/v1/messages",
-                params={"receive_id_type": "chat_id"},
-                headers={"Authorization": f"Bearer {token}"},
-                json={
-                    "receive_id": chat_id,
-                    "msg_type": "text",
-                    "content": json.dumps({"text": text}, ensure_ascii=False),
-                },
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type(self._receive_id_type(chat_id))
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("text")
+                .content(json.dumps({"text": text}, ensure_ascii=False))
+                .uuid(make_message_id("feishu_reply"))
+                .build()
             )
-            resp.raise_for_status()
-            data = resp.json()
-            return str(data.get("data", {}).get("message_id") or "")
+            .build()
+        )
+        response = await self._send_message(request)
+        if not response.success():
+            raise IMAdapterError(
+                f"feishu send message failed: code={response.code} msg={response.msg}"
+            )
+        if response.data is None:
+            return ""
+        return str(response.data.message_id or "")
+
+    async def _send_message(self, request: CreateMessageRequest) -> Any:
+        import asyncio
+
+        return await asyncio.to_thread(self._send_message_sync, request)
+
+    def _send_message_sync(self, request: CreateMessageRequest) -> Any:
+        with _without_invalid_socks_proxy():
+            return self._sdk_client().im.v1.message.create(request)
+
+    def parse_sdk_message(self, event: Any) -> IncomingIMMessage:
+        payload = {
+            "header": self._sdk_header(event),
+            "event": {
+                "sender": self._sdk_sender(event),
+                "message": self._sdk_message(event),
+            },
+        }
+        return self.parse_event(payload)
 
     def _verify_token(self, token: Any) -> None:
         expected = self._settings.im_feishu_verification_token
@@ -157,27 +176,74 @@ class FeishuAdapter:
             return time.time()
         return raw / 1000 if raw > 10_000_000_000 else raw
 
-    async def _tenant_access_token(self) -> str:
-        now = time.time()
-        if self._tenant_token and now < self._tenant_token_expires_at:
-            return self._tenant_token
-
-        base = self._settings.im_feishu_api_base_url.rstrip("/")
-        async with httpx.AsyncClient(timeout=self._settings.iot_timeout_seconds, trust_env=False) as client:
-            resp = await client.post(
-                f"{base}/open-apis/auth/v3/tenant_access_token/internal",
-                json={
-                    "app_id": self._settings.im_feishu_app_id,
-                    "app_secret": self._settings.im_feishu_app_secret,
-                },
+    def _sdk_client(self) -> lark.Client:
+        if self._client is None:
+            self._client = (
+                lark.Client.builder()
+                .app_id(self._settings.im_feishu_app_id)
+                .app_secret(self._settings.im_feishu_app_secret)
+                .domain(self._settings.im_feishu_api_base_url.rstrip("/"))
+                .timeout(float(self._settings.iot_timeout_seconds))
+                .build()
             )
-            resp.raise_for_status()
-            data = resp.json()
-        token = data.get("tenant_access_token")
-        if not isinstance(token, str) or not token:
-            raise IMAdapterError("feishu tenant_access_token response missing token")
-        expire = data.get("expire")
-        ttl = float(expire) if isinstance(expire, (int, float)) else 3600.0
-        self._tenant_token = token
-        self._tenant_token_expires_at = now + max(ttl - 60, 60)
-        return token
+        return self._client
+
+    def _receive_id_type(self, receive_id: str) -> str:
+        if receive_id.startswith("oc_"):
+            return "chat_id"
+        if receive_id.startswith("ou_"):
+            return "open_id"
+        if receive_id.startswith("on_"):
+            return "union_id"
+        return "user_id"
+
+    def _sdk_header(self, event: Any) -> dict[str, Any]:
+        header = getattr(event, "header", None)
+        if header is None:
+            return {}
+        return {
+            "event_id": getattr(header, "event_id", None),
+            "token": getattr(header, "token", None),
+            "create_time": getattr(header, "create_time", None),
+        }
+
+    def _sdk_sender(self, event: Any) -> dict[str, Any]:
+        sender = getattr(getattr(event, "event", None), "sender", None)
+        sender_id = getattr(sender, "sender_id", None)
+        return {
+            "sender_id": {
+                "user_id": getattr(sender_id, "user_id", None),
+                "open_id": getattr(sender_id, "open_id", None),
+                "union_id": getattr(sender_id, "union_id", None),
+            },
+            "sender_type": getattr(sender, "sender_type", None),
+            "tenant_key": getattr(sender, "tenant_key", None),
+        }
+
+    def _sdk_message(self, event: Any) -> dict[str, Any]:
+        message = getattr(getattr(event, "event", None), "message", None)
+        return {
+            "message_id": getattr(message, "message_id", None),
+            "chat_id": getattr(message, "chat_id", None),
+            "message_type": getattr(message, "message_type", None),
+            "content": getattr(message, "content", None),
+            "create_time": getattr(message, "create_time", None),
+        }
+
+
+@contextmanager
+def _without_invalid_socks_proxy():
+    keys = ["ALL_PROXY", "all_proxy"]
+    saved = {key: os.environ.get(key) for key in keys}
+    try:
+        for key in keys:
+            value = os.environ.get(key, "")
+            if value.lower().startswith("socks://"):
+                os.environ.pop(key, None)
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

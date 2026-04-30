@@ -6,11 +6,12 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from banbu.config.settings import Settings
-from banbu.reactive.runner import ReactiveRunner, ReactiveRunResult, result_payload
+from banbu.reactive.agent_runner import ReactiveAgentResult, ReactiveAgentRunner, result_payload
 from banbu.turn.builder import from_reactive
 from banbu.turn.scheduler import TurnScheduler, reactive_key
 
-from .feishu_adapter import FeishuAdapter, IMAdapterError
+from .feishu_adapter import IMAdapterError
+from .feishu_service import FeishuSDKService
 from .reply import render_reactive_reply
 from .types import IncomingIMMessage
 from .weixin_adapter import WeixinBridgeAdapter
@@ -21,21 +22,20 @@ log = logging.getLogger(__name__)
 def make_router(
     *,
     settings: Settings,
-    runner: ReactiveRunner,
+    runner: ReactiveAgentRunner,
     scheduler: TurnScheduler,
 ) -> APIRouter:
     router = APIRouter()
-    feishu = FeishuAdapter(settings)
     weixin = WeixinBridgeAdapter(settings)
 
-    async def run_message(message: IncomingIMMessage) -> ReactiveRunResult:
+    async def run_message(message: IncomingIMMessage) -> ReactiveAgentResult:
         turn = from_reactive(
             message.text,
             home_id=message.home_id,
             user_id=message.user_id,
             source=message.source,
         )
-        holder: dict[str, ReactiveRunResult] = {}
+        holder: dict[str, ReactiveAgentResult] = {}
 
         async def job() -> None:
             holder["result"] = await runner.run(turn)
@@ -52,39 +52,6 @@ def make_router(
         except Exception as e:
             log.warning("im reply failed: %s", e)
             return None, str(e)
-
-    @router.post(settings.im_feishu_path)
-    async def feishu_events(request: Request) -> dict[str, Any]:
-        if not settings.im_enabled or not settings.im_feishu_enabled:
-            return disabled("feishu")
-        try:
-            body = await request.json()
-        except Exception:
-            return {"ok": False, "ignored": True, "reason": "invalid_json"}
-        if not isinstance(body, dict):
-            return {"ok": False, "ignored": True, "reason": "invalid_body"}
-
-        try:
-            challenge = feishu.verify_url_challenge(body)
-            if challenge is not None:
-                return challenge
-            message = feishu.parse_event(body)
-        except IMAdapterError as e:
-            log.warning("feishu: ignored inbound event: %s", e)
-            return {"ok": False, "ignored": True, "reason": str(e)}
-
-        result = await run_message(message)
-        reply = render_reactive_reply(result)
-        reply_message_id, reply_error = await try_reply(lambda: feishu.send_text(message.chat_id, reply))
-        return {
-            "ok": result.ok,
-            "platform": message.platform,
-            "message_id": message.message_id,
-            "reply": reply,
-            "reply_message_id": reply_message_id,
-            "reply_error": reply_error,
-            "result": result_payload(result),
-        }
 
     @router.post(settings.im_weixin_path)
     async def weixin_messages(request: Request) -> dict[str, Any]:
@@ -122,3 +89,27 @@ def make_router(
         }
 
     return router
+
+
+def make_feishu_sdk_service(
+    *,
+    settings: Settings,
+    runner: ReactiveAgentRunner,
+    scheduler: TurnScheduler,
+) -> FeishuSDKService:
+    async def run_message(message: IncomingIMMessage) -> ReactiveAgentResult:
+        turn = from_reactive(
+            message.text,
+            home_id=message.home_id,
+            user_id=message.user_id,
+            source=message.source,
+        )
+        holder: dict[str, ReactiveAgentResult] = {}
+
+        async def job() -> None:
+            holder["result"] = await runner.run(turn)
+
+        await scheduler.run_serialized(reactive_key(turn.home_id, turn.user_id or "unknown"), job)
+        return holder["result"]
+
+    return FeishuSDKService(settings=settings, run_message=run_message)

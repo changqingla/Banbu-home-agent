@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from banbu.devices.registry import RegistryError, build_registry
-from banbu.scenes.loader import SceneLoadError, load_scenes
+from banbu.scenes.loader import load_scenes
 
 
 class InMemoryIoTClient:
@@ -90,7 +90,7 @@ async def test_non_strict_registry_skips_missing_declared_device(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_scene_loader_rejects_scene_referencing_skipped_device(tmp_path: Path) -> None:
+async def test_scene_loader_skips_scene_referencing_skipped_device(tmp_path: Path) -> None:
     resolver = await build_registry(
         InMemoryIoTClient(),
         _devices_yaml(tmp_path / "devices.yaml"),
@@ -122,5 +122,4 @@ policy:
         encoding="utf-8",
     )
 
-    with pytest.raises(SceneLoadError, match="unknown device 'missing_sensor'"):
-        load_scenes(scenes_dir, resolver)
+    assert load_scenes(scenes_dir, resolver) == []

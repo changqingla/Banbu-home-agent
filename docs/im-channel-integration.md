@@ -28,17 +28,16 @@ incrementally.
 
 ## Feishu
 
-Feishu receives events at:
-
-```text
-POST /api/v1/im/feishu/events
-```
-
-Required settings for inbound messages:
+Feishu receives events exclusively through the official `lark-oapi` SDK
+WebSocket client. Banbu does not expose a Feishu webhook fallback. The SDK owns
+platform event dispatch, encrypted payloads, and token/signature checks.
 
 ```env
 BANBU_IM_FEISHU_ENABLED=true
+BANBU_IM_FEISHU_APP_ID=<app id>
+BANBU_IM_FEISHU_APP_SECRET=<app secret>
 BANBU_IM_FEISHU_VERIFICATION_TOKEN=<event verification token>
+BANBU_IM_FEISHU_ENCRYPT_KEY=<optional encrypt key>
 ```
 
 Optional settings for sending replies back to Feishu:
@@ -50,10 +49,10 @@ BANBU_IM_FEISHU_APP_SECRET=<app secret>
 BANBU_IM_FEISHU_API_BASE_URL=https://open.feishu.cn
 ```
 
-The adapter handles Feishu URL verification by returning the `challenge`.
 Text and post messages are converted into Banbu reactive turns. Attachments are
 kept on the unified message for future multimodal handling, but v1 only routes
-text commands.
+text commands. Events are deduplicated in memory with
+`BANBU_IM_FEISHU_EVENT_DEDUPE_TTL_SECONDS`.
 
 ## Personal WeChat
 

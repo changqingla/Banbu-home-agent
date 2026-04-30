@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.30",
     "contextpilot",
     "python-dateutil>=2.9",
+    "lark-oapi>=1.5.5",
 ]
 
 [project.optional-dependencies]
